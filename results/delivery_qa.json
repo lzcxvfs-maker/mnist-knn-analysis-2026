@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "configurations": 100,
+  "test_predictions": 10000,
+  "baseline_comparisons": 10,
+  "all_baseline_predictions_agree": true,
+  "recomputed_all_predictions_scores_and_metrics": true,
+  "split_disjoint": true,
+  "selection_rule_verified": true
+}
