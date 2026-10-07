@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MNIST kNN 图像分类实验与技术成果报告</title>
+<style>
+:root {
+  --primary: #1d4ed8;
+  --primary-light: #eff6ff;
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --border: #e2e8f0;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --code-bg: #0f172a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text-main);
+  background: var(--bg-page);
+  line-height: 1.6;
+}
+.container { max-width: 1160px; margin: 0 auto; padding: 0 20px; }
+header {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: #fff;
+  padding: 48px 0 36px;
+  border-bottom: 1px solid #334155;
+}
+.header-badge {
+  display: inline-block;
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+header h1 { font-size: 30px; font-weight: 800; margin-bottom: 10px; }
+header p.lead { font-size: 16px; color: #94a3b8; max-width: 820px; margin-bottom: 20px; }
+.stat-banner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+.stat-box {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.stat-box .num {
+  font-size: 26px;
+  font-weight: 800;
+  color: #38bdf8;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.stat-box .label { font-size: 13px; color: #cbd5e1; margin-top: 4px; }
+nav.subnav {
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+nav.subnav .container {
+  display: flex; gap: 20px; overflow-x: auto; padding-top: 12px; padding-bottom: 12px;
+}
+nav.subnav a {
+  color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 600;
+  padding: 4px 8px; border-radius: 4px; transition: all 0.2s; white-space: nowrap;
+}
+nav.subnav a:hover { color: var(--primary); background: var(--primary-light); }
+main { padding: 36px 0 60px; }
+section { margin-bottom: 48px; scroll-margin-top: 60px; }
+.section-title {
+  font-size: 22px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+}
+.section-title::before {
+  content: ""; display: inline-block; width: 4px; height: 20px; background: var(--primary); border-radius: 2px;
+}
+.section-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
+.card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px;
+}
+.card h3 { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
+table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+table.data-table th, table.data-table td { padding: 9px 12px; border: 1px solid var(--border); text-align: left; }
+table.data-table th { background: #f1f5f9; font-weight: 600; color: #334155; }
+table.data-table tr:nth-child(even) { background: #f8fafc; }
+.chart-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.chart-card .caption {
+  margin-top: 12px; font-size: 13.5px; color: #475569; width: 100%; line-height: 1.5;
+}
+.chart-card .caption strong { color: #0f172a; }
+.code-container { border-radius: 8px; overflow: hidden; background: var(--code-bg); border: 1px solid #334155; }
+.code-header { display: flex; background: #1e293b; border-bottom: 1px solid #334155; overflow-x: auto; }
+.code-tab {
+  padding: 10px 14px; color: #94a3b8; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: none; background: none; border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.code-tab.active { color: #38bdf8; background: #0f172a; border-bottom: 2px solid #38bdf8; }
+.code-panel {
+  display: none; padding: 18px; max-height: 520px; overflow-y: auto;
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 12.5px;
+  color: #e2e8f0; line-height: 1.5; white-space: pre;
+}
+.code-panel.active { display: block; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.badge-green { background: #dcfce7; color: #15803d; }
+.badge-blue { background: #e0f2fe; color: #0369a1; }
+footer {
+  background: #0f172a; color: #94a3b8; padding: 36px 0; font-size: 13.5px; border-top: 1px solid #1e293b;
+  text-align: center;
+}
+footer a { color: #38bdf8; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div class="header-badge">课程设计完整成果 · 100组验证 + 10,000张全量测试</div>
+    <h1>基于 k 近邻（kNN）的 MNIST 图像分类实验</h1>
+    <p class="lead">涵盖 SVD PCA / HOG 特征探索、分批 GPU/CPU 向量化距离检索、双层平票仲裁机制、100 组参数搜索与 11 项算法 QA 全量验证。</p>
+    
+    <div class="stat-banner">
+      <div class="stat-box">
+        <div class="num">96.83%</div>
+        <div class="label">测试集 Top-1 准确率 (9683/10000)</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">99.01%</div>
+        <div class="label">测试集 Top-3 候选覆盖率</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">99.26%</div>
+        <div class="label">测试集 Top-5 候选覆盖率</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">100 / 100</div>
+        <div class="label">参数网格搜索完成配置</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">100%</div>
+        <div class="label">10组 sklearn 独立对照一致率</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="subnav">
+  <div class="container">
+    <a href="#summary">一、方案与选型</a>
+    <a href="#validation">二、100组验证分析</a>
+    <a href="#test">三、最终测试评估</a>
+    <a href="#confusion">四、混淆矩阵诊断</a>
+    <a href="#efficiency">五、运行效率剖析</a>
+    <a href="#code">六、源码在线浏览</a>
+    <a href="#reproduce">七、可复现指南</a>
+  </div>
+</nav>
+
+<main class="container">
+
+  <!-- Section 1 -->
+  <section id="summary">
+    <h2 class="section-title">一、方案概述与最终选型</h2>
+    <p class="section-desc">严格遵循训练/验证/测试隔离设计，测试集仅用于最终锁定方案的单次无偏评测。</p>
+    
+    <div class="grid-2">
+      <div class="card">
+        <h3>🎯 锁定最优配置</h3>
+        <table class="data-table">
+          <tr><th>参数项</th><th>配置值</th><th>说明</th></tr>
+          <tr><td>特征空间</td><td><span class="badge badge-green">HOG 特征</span></td><td>324 维（9 方向 × 7×7 像素单元 × 2×2 块归一化）</td></tr>
+          <tr><td>距离度量</td><td><span class="badge badge-blue">L2 欧氏距离</span></td><td>平方欧氏距离向量化检索，浮点负值截断</td></tr>
+          <tr><td>近邻数 k</td><td><strong>k = 5</strong></td><td>在保留局部鲁棒性的同时抑制边界噪声</td></tr>
+          <tr><td>投票权重</td><td><strong>均匀投票 (uniform)</strong></td><td>每个近邻贡献 1 票，同分类别优先更小编号</td></tr>
+          <tr><td>验证集表现</td><td><strong>96.00%</strong></td><td>在 12,000 训练 / 2,000 独立验证子集上确定</td></tr>
+        </table>
+      </div>
+      
+      <div class="card">
+        <h3>⚖️ 算法设计契约与平票仲裁</h3>
+        <ul style="padding-left: 18px; font-size: 13.5px; color: var(--text-muted); line-height: 1.8;">
+          <li><strong>近邻选择平票</strong>：当第 k 个近邻出现距离相同时，严格保留训练集行号更小的样本，保证检索绝对确定性。</li>
+          <li><strong>类别投票平票</strong>：当两个类别获得相同累计票数时，优先判定为类别编号较小的数字（0-9），契合课程标准。</li>
+          <li><strong>加权距离定义</strong>：程序加权采用 <code>1/d</code>（先对平方距离开方），避免误用 <code>1/d²</code>；出现零距离时仅零距离邻居独享投票权。</li>
+          <li><strong>Top-n 精度口径</strong>：按类别得分降序、类别编号升序排序，未获票类别得分归零后按编号补位，避免虚构高置信度。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 2 -->
+  <section id="validation">
+    <h2 class="section-title">二、100 组参数搜索与特征探索</h2>
+    <p class="section-desc">在 5 种特征（Raw 784维、PCA-20/50/100维、HOG 324维）× 2 种距离 × 2 种权重 × 5 个 k 值的全网格分析。</p>
+
+    <div class="chart-card" style="margin-bottom: 20px;">
+      <svg viewBox="0 0 600 360" width="100%" height="auto" style="max-width:560px;font-family:sans-serif;" xmlns="http://www.w3.org/2000/svg"><rect width="600" height="360" fill="#ffffff" rx="8"/><text x="300" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">不同 k 与特征在验证集上的 Top-1 准确率曲线</text><line x1="70" y1="300.0" x2="490" y2="300.0" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="304.0" text-anchor="end" font-size="10" fill="#64748b">94.0%</text><line x1="70" y1="251.99999999999994" x2="490" y2="251.99999999999994" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="255.99999999999994" text-anchor="end" font-size="10" fill="#64748b">94.5%</text><line x1="70" y1="203.99999999999991" x2="490" y2="203.99999999999991" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="207.99999999999991" text-anchor="end" font-size="10" fill="#64748b">95.0%</text><line x1="70" y1="155.9999999999999" x2="490" y2="155.9999999999999" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="159.9999999999999" text-anchor="end" font-size="10" fill="#64748b">95.5%</text><line x1="70" y1="107.99999999999983" x2="490" y2="107.99999999999983" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="111.99999999999983" text-anchor="end" font-size="10" fill="#64748b">96.0%</text><line x1="70" y1="59.99999999999977" x2="490" y2="59.99999999999977" stroke="#e2e8f0" stroke-width="1"/><text x="62" y="63.99999999999977" text-anchor="end" font-size="10" fill="#64748b">96.5%</text><line x1="80" y1="60" x2="80" y2="300" stroke="#f1f5f9" stroke-width="1"/><text x="80" y="318" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">k=1</text><line x1="180" y1="60" x2="180" y2="300" stroke="#f1f5f9" stroke-width="1"/><text x="180" y="318" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">k=3</text><line x1="280" y1="60" x2="280" y2="300" stroke="#f1f5f9" stroke-width="1"/><text x="280" y="318" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">k=5</text><line x1="380" y1="60" x2="380" y2="300" stroke="#f1f5f9" stroke-width="1"/><text x="380" y="318" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">k=7</text><line x1="480" y1="60" x2="480" y2="300" stroke="#f1f5f9" stroke-width="1"/><text x="480" y="318" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">k=9</text><polyline points="80,228.0 180,247.2 280,271.2 380,319.2 480,338.4" fill="none" stroke="#64748b" stroke-width="1.8"/><circle cx="80" cy="228.0" r="3.5" fill="#64748b"/><circle cx="180" cy="247.2" r="3.5" fill="#64748b"/><circle cx="280" cy="271.2" r="3.5" fill="#64748b"/><circle cx="380" cy="319.2" r="3.5" fill="#64748b"/><circle cx="480" cy="338.4" r="3.5" fill="#64748b"/><rect x="500" y="70" width="12" height="12" fill="#64748b" rx="2"/><text x="518" y="80" font-size="10.5" fill="#334155">Raw 784维</text><polyline points="80,280.8 180,237.6 280,223.2 380,237.6 480,247.2" fill="none" stroke="#f59e0b" stroke-width="1.8"/><circle cx="80" cy="280.8" r="3.5" fill="#f59e0b"/><circle cx="180" cy="237.6" r="3.5" fill="#f59e0b"/><circle cx="280" cy="223.2" r="3.5" fill="#f59e0b"/><circle cx="380" cy="237.6" r="3.5" fill="#f59e0b"/><circle cx="480" cy="247.2" r="3.5" fill="#f59e0b"/><rect x="500" y="94" width="12" height="12" fill="#f59e0b" rx="2"/><text x="518" y="104" font-size="10.5" fill="#334155">PCA 20维</text><polyline points="80,136.8 180,156.0 280,146.4 380,175.2 480,189.6" fill="none" stroke="#10b981" stroke-width="1.8"/><circle cx="80" cy="136.8" r="3.5" fill="#10b981"/><circle cx="180" cy="156.0" r="3.5" fill="#10b981"/><circle cx="280" cy="146.4" r="3.5" fill="#10b981"/><circle cx="380" cy="175.2" r="3.5" fill="#10b981"/><circle cx="480" cy="189.6" r="3.5" fill="#10b981"/><rect x="500" y="118" width="12" height="12" fill="#10b981" rx="2"/><text x="518" y="128" font-size="10.5" fill="#334155">PCA 50维</text><polyline points="80,175.2 180,213.6 280,218.4 380,208.8 480,247.2" fill="none" stroke="#6366f1" stroke-width="1.8"/><circle cx="80" cy="175.2" r="3.5" fill="#6366f1"/><circle cx="180" cy="213.6" r="3.5" fill="#6366f1"/><circle cx="280" cy="218.4" r="3.5" fill="#6366f1"/><circle cx="380" cy="208.8" r="3.5" fill="#6366f1"/><circle cx="480" cy="247.2" r="3.5" fill="#6366f1"/><rect x="500" y="142" width="12" height="12" fill="#6366f1" rx="2"/><text x="518" y="152" font-size="10.5" fill="#334155">PCA 100维</text><polyline points="80,175.2 180,141.6 280,108.0 380,146.4 480,180.0" fill="none" stroke="#dc2626" stroke-width="3"/><circle cx="80" cy="175.2" r="3.5" fill="#dc2626"/><circle cx="180" cy="141.6" r="3.5" fill="#dc2626"/><circle cx="280" cy="108.0" r="3.5" fill="#dc2626"/><circle cx="380" cy="146.4" r="3.5" fill="#dc2626"/><circle cx="480" cy="180.0" r="3.5" fill="#dc2626"/><rect x="500" y="166" width="12" height="12" fill="#dc2626" rx="2"/><text x="518" y="176" font-size="10.5" fill="#334155">HOG 324维 (最优)</text></svg>
+      <div class="caption">
+        <strong>图 1：不同 k 值与特征空间在验证集上的 Top-1 准确率曲线。</strong>
+        HOG 特征在 k=5 时表现最优达到 96.00%；PCA-50 维在 k=1 时达到 95.70%，仅用 50 个主成分即逼近原始 784 维像素在 k=5 的表现（94.85%），验证了手写体数字流形结构的内在低维特性。
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="chart-card">
+        <svg viewBox="0 0 500 320" width="100%" height="auto" style="max-width:460px;font-family:sans-serif;" xmlns="http://www.w3.org/2000/svg"><rect width="500" height="320" fill="#ffffff" rx="8"/><text x="250" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">SVD PCA 解释方差累计分布曲线</text><line x1="60" y1="226.0" x2="450" y2="226.0" stroke="#e2e8f0" stroke-width="1"/><text x="52" y="230.0" text-anchor="end" font-size="10" fill="#64748b">20%</text><line x1="60" y1="182.0" x2="450" y2="182.0" stroke="#e2e8f0" stroke-width="1"/><text x="52" y="186.0" text-anchor="end" font-size="10" fill="#64748b">40%</text><line x1="60" y1="138.0" x2="450" y2="138.0" stroke="#e2e8f0" stroke-width="1"/><text x="52" y="142.0" text-anchor="end" font-size="10" fill="#64748b">60%</text><line x1="60" y1="94.0" x2="450" y2="94.0" stroke="#e2e8f0" stroke-width="1"/><text x="52" y="98.0" text-anchor="end" font-size="10" fill="#64748b">80%</text><line x1="60" y1="50.0" x2="450" y2="50.0" stroke="#e2e8f0" stroke-width="1"/><text x="52" y="54.0" text-anchor="end" font-size="10" fill="#64748b">100%</text><line x1="138.0" y1="128.46865796733508" x2="138.0" y2="270" stroke="#94a3b8" stroke-dasharray="3,3"/><circle cx="138.0" cy="128.46865796733508" r="4" fill="#2563eb"/><text x="138.0" y="120.46865796733508" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e40af">64.3%</text><text x="138.0" y="286" text-anchor="middle" font-size="10.5" fill="#475569">20维</text><line x1="255.0" y1="88.4564579287917" x2="255.0" y2="270" stroke="#94a3b8" stroke-dasharray="3,3"/><circle cx="255.0" cy="88.4564579287917" r="4" fill="#2563eb"/><text x="255.0" y="80.4564579287917" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e40af">82.5%</text><text x="255.0" y="286" text-anchor="middle" font-size="10.5" fill="#475569">50维</text><line x1="450.0" y1="68.62980363484701" x2="450.0" y2="270" stroke="#94a3b8" stroke-dasharray="3,3"/><circle cx="450.0" cy="68.62980363484701" r="4" fill="#2563eb"/><text x="450.0" y="60.62980363484701" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e40af">91.5%</text><text x="450.0" y="286" text-anchor="middle" font-size="10.5" fill="#475569">100维</text><polyline points="63.9,248.6 67.8,233.2 71.7,219.9 75.6,207.9 79.5,197.2 83.4,187.8 87.3,180.4 91.2,174.0 95.1,167.9 99.0,162.6 102.9,158.0 106.8,153.6 110.7,149.8 114.6,146.0 118.5,142.7 122.4,139.4 126.3,136.5 130.2,133.6 134.1,131.0 138.0,128.5 141.9,126.1 145.8,124.0 149.7,121.8 153.6,119.8 157.5,117.9 161.4,116.0 165.3,114.2 169.2,112.5 173.1,110.8 177.0,109.3 180.9,107.8 184.8,106.4 188.7,105.1 192.6,103.8 196.5,102.5 200.4,101.3 204.3,100.2 208.2,99.1 212.1,98.0 216.0,96.9 219.9,96.0 223.8,95.0 227.7,94.1 231.6,93.2 235.5,92.3 239.4,91.5 243.3,90.7 247.2,89.9 251.1,89.2 255.0,88.5 258.9,87.8 262.8,87.1 266.7,86.4 270.6,85.8 274.5,85.2 278.4,84.6 282.3,84.0 286.2,83.4 290.1,82.9 294.0,82.3 297.9,81.8 301.8,81.3 305.7,80.7 309.6,80.3 313.5,79.8 317.4,79.3 321.3,78.9 325.2,78.4 329.1,78.0 333.0,77.6 336.9,77.2 340.8,76.8 344.7,76.4 348.6,76.0 352.5,75.7 356.4,75.3 360.3,74.9 364.2,74.6 368.1,74.3 372.0,73.9 375.9,73.6 379.8,73.3 383.7,73.0 387.6,72.7 391.5,72.4 395.4,72.1 399.3,71.8 403.2,71.6 407.1,71.3 411.0,71.0 414.9,70.8 418.8,70.5 422.7,70.3 426.6,70.0 430.5,69.8 434.4,69.5 438.3,69.3 442.2,69.1 446.1,68.8 450.0,68.6" fill="none" stroke="#2563eb" stroke-width="2.5"/></svg>
+        <div class="caption">
+          <strong>图 2：中心化 SVD PCA 的主成分解释方差累计曲线。</strong>
+          前 20 维主成分保留 63.8% 方差；前 50 维保留 82.5% 方差；前 100 维保留 91.4% 方差。
+        </div>
+      </div>
+      
+      <div class="chart-card">
+        <svg viewBox="0 0 500 320" width="100%" height="auto" style="max-width:460px;font-family:sans-serif;" xmlns="http://www.w3.org/2000/svg"><rect width="500" height="320" fill="#ffffff" rx="8"/><text x="250" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">各特征方案最优验证准确率对比</text><text x="110" y="74" text-anchor="end" font-size="11.5" font-weight="600" fill="#334155">Raw (784维)</text><rect x="120" y="56" width="95.2" height="28" fill="#64748b" rx="4"/><text x="223.19999999999936" y="75" font-size="11.5" font-weight="bold" fill="#64748b">94.85%</text><text x="110" y="124" text-anchor="end" font-size="11.5" font-weight="600" fill="#334155">PCA (20维)</text><rect x="120" y="106" width="106.4" height="28" fill="#f59e0b" rx="4"/><text x="234.40000000000032" y="125" font-size="11.5" font-weight="bold" fill="#f59e0b">94.95%</text><text x="110" y="174" text-anchor="end" font-size="11.5" font-weight="600" fill="#334155">PCA (100维)</text><rect x="120" y="156" width="145.6" height="28" fill="#6366f1" rx="4"/><text x="273.5999999999997" y="175" font-size="11.5" font-weight="bold" fill="#6366f1">95.30%</text><text x="110" y="224" text-anchor="end" font-size="11.5" font-weight="600" fill="#334155">PCA (50维)</text><rect x="120" y="206" width="190.4" height="28" fill="#10b981" rx="4"/><text x="318.4000000000003" y="225" font-size="11.5" font-weight="bold" fill="#10b981">95.70%</text><text x="110" y="274" text-anchor="end" font-size="11.5" font-weight="600" fill="#334155">HOG (324维)</text><rect x="120" y="256" width="224.0" height="28" fill="#dc2626" rx="4"/><text x="352.0" y="275" font-size="11.5" font-weight="bold" fill="#dc2626">96.00%</text></svg>
+        <div class="caption">
+          <strong>图 3：五种特征提取方案的最佳验证准确率对比柱状图。</strong>
+          HOG (96.00%) > PCA-50 (95.70%) > PCA-100 (95.30%) > PCA-20 (94.95%) > Raw (94.85%)。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3 -->
+  <section id="test">
+    <h2 class="section-title">三、完整测试集评估（10,000 张）</h2>
+    <p class="section-desc">使用全部 60,000 张训练图像拟合，对独立 10,000 张测试集进行最终无偏评测。</p>
+
+    <div class="card">
+      <h3>📊 逐类别详细分类指标 (Class-wise Classification Report)</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>数字类别</th><th>Precision (精确率)</th><th>Recall (召回率)</th><th>F1-score</th><th>测试样本支持数 (Support)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>数字 0</strong></td>
+            <td>96.73%</td>
+            <td>99.69%</td>
+            <td>0.9819</td>
+            <td>980</td>
+          </tr>
+          <tr>
+            <td><strong>数字 1</strong></td>
+            <td>98.85%</td>
+            <td>98.68%</td>
+            <td>0.9877</td>
+            <td>1135</td>
+          </tr>
+          <tr>
+            <td><strong>数字 2</strong></td>
+            <td>97.37%</td>
+            <td>96.90%</td>
+            <td>0.9713</td>
+            <td>1032</td>
+          </tr>
+          <tr>
+            <td><strong>数字 3</strong></td>
+            <td>95.05%</td>
+            <td>96.93%</td>
+            <td>0.9598</td>
+            <td>1010</td>
+          </tr>
+          <tr>
+            <td><strong>数字 4</strong></td>
+            <td>99.03%</td>
+            <td>93.99%</td>
+            <td>0.9645</td>
+            <td>982</td>
+          </tr>
+          <tr>
+            <td><strong>数字 5</strong></td>
+            <td>98.51%</td>
+            <td>96.30%</td>
+            <td>0.9739</td>
+            <td>892</td>
+          </tr>
+          <tr>
+            <td><strong>数字 6</strong></td>
+            <td>97.02%</td>
+            <td>98.54%</td>
+            <td>0.9777</td>
+            <td>958</td>
+          </tr>
+          <tr>
+            <td><strong>数字 7</strong></td>
+            <td>96.95%</td>
+            <td>95.82%</td>
+            <td>0.9638</td>
+            <td>1028</td>
+          </tr>
+          <tr>
+            <td><strong>数字 8</strong></td>
+            <td>96.66%</td>
+            <td>94.97%</td>
+            <td>0.9581</td>
+            <td>974</td>
+          </tr>
+          <tr>
+            <td><strong>数字 9</strong></td>
+            <td>92.48%</td>
+            <td>96.23%</td>
+            <td>0.9432</td>
+            <td>1009</td>
+          </tr>
+          <tr style="background:#e2e8f0; font-weight:bold;">
+            <td>全类别 Macro Avg</td>
+            <td>96.86%</td>
+            <td>96.81%</td>
+            <td>0.9682</td>
+            <td>10,000</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Section 4 -->
+  <section id="confusion">
+    <h2 class="section-title">四、混淆矩阵与错误案例诊断</h2>
+    <p class="section-desc">定位高频易混淆数字对，剖析书写畸变、断笔与闭环粘连对近邻距离的本质影响。</p>
+
+    <div class="grid-2">
+      <div class="chart-card">
+        <svg viewBox="0 0 540 540" width="100%" height="auto" style="max-width:500px;font-family:sans-serif;" xmlns="http://www.w3.org/2000/svg"><rect width="540" height="540" fill="#ffffff" rx="8"/><text x="270" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">全量 10,000 张测试集混淆矩阵 (Confusion Matrix)</text><text x="270" y="525" text-anchor="middle" font-size="12" fill="#475569">预测类别 (Predicted Class)</text><text x="16" y="270" text-anchor="middle" font-size="12" fill="#475569" transform="rotate(-90 16 270)">真实类别 (True Class)</text><text x="81.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">0</text><text x="123.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">1</text><text x="165.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">2</text><text x="207.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">3</text><text x="249.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">4</text><text x="291.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">5</text><text x="333.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">6</text><text x="375.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">7</text><text x="417.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">8</text><text x="459.0" y="40" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">9</text><text x="48" y="73.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">0</text><text x="48" y="115.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">1</text><text x="48" y="157.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">2</text><text x="48" y="199.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">3</text><text x="48" y="241.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">4</text><text x="48" y="283.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">5</text><text x="48" y="325.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">6</text><text x="48" y="367.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">7</text><text x="48" y="409.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">8</text><text x="48" y="451.0" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">9</text><rect x="60" y="48" width="41" height="41" fill="rgba(29, 78, 216, 0.90)" rx="2"/><text x="81.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">977</text><rect x="102" y="48" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="123.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="144" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="165.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="186" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="207.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="228" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="249.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="270" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="291.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="312" y="48" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="333.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="354" y="48" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="375.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="396" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="417.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="438" y="48" width="41" height="41" fill="#f8fafc" rx="2"/><text x="459.0" y="73.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="60" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="81.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="102" y="90" width="41" height="41" fill="rgba(29, 78, 216, 1.00)" rx="2"/><text x="123.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">1120</text><rect x="144" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="165.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="186" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="207.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="228" y="90" width="41" height="41" fill="#f8fafc" rx="2"/><text x="249.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="270" y="90" width="41" height="41" fill="#f8fafc" rx="2"/><text x="291.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="312" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="333.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="354" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.20)" rx="2"/><text x="375.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">3</text><rect x="396" y="90" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="417.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="438" y="90" width="41" height="41" fill="#f8fafc" rx="2"/><text x="459.0" y="115.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="60" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.25)" rx="2"/><text x="81.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">6</text><rect x="102" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="123.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="144" y="132" width="41" height="41" fill="rgba(29, 78, 216, 0.91)" rx="2"/><text x="165.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">1000</text><rect x="186" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.35)" rx="2"/><text x="207.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">12</text><rect x="228" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="249.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="270" y="132" width="41" height="41" fill="#f8fafc" rx="2"/><text x="291.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="312" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="333.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="354" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.25)" rx="2"/><text x="375.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">6</text><rect x="396" y="132" width="41" height="41" fill="rgba(239, 68, 68, 0.23)" rx="2"/><text x="417.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">5</text><rect x="438" y="132" width="41" height="41" fill="#f8fafc" rx="2"/><text x="459.0" y="157.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="60" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="81.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="102" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="123.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="144" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.23)" rx="2"/><text x="165.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">5</text><rect x="186" y="174" width="41" height="41" fill="rgba(29, 78, 216, 0.90)" rx="2"/><text x="207.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">979</text><rect x="228" y="174" width="41" height="41" fill="#f8fafc" rx="2"/><text x="249.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="270" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.25)" rx="2"/><text x="291.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">6</text><rect x="312" y="174" width="41" height="41" fill="#f8fafc" rx="2"/><text x="333.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="354" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.27)" rx="2"/><text x="375.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">7</text><rect x="396" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.27)" rx="2"/><text x="417.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">7</text><rect x="438" y="174" width="41" height="41" fill="rgba(239, 68, 68, 0.20)" rx="2"/><text x="459.0" y="199.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">3</text><rect x="60" y="216" width="41" height="41" fill="#f8fafc" rx="2"/><text x="81.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="102" y="216" width="41" height="41" fill="#f8fafc" rx="2"/><text x="123.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="144" y="216" width="41" height="41" fill="#f8fafc" rx="2"/><text x="165.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="186" y="216" width="41" height="41" fill="#f8fafc" rx="2"/><text x="207.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="228" y="216" width="41" height="41" fill="rgba(29, 78, 216, 0.86)" rx="2"/><text x="249.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">923</text><rect x="270" y="216" width="41" height="41" fill="#f8fafc" rx="2"/><text x="291.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="312" y="216" width="41" height="41" fill="rgba(239, 68, 68, 0.27)" rx="2"/><text x="333.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">7</text><rect x="354" y="216" width="41" height="41" fill="rgba(239, 68, 68, 0.23)" rx="2"/><text x="375.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">5</text><rect x="396" y="216" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="417.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="438" y="216" width="41" height="41" fill="rgba(239, 68, 68, 0.90)" rx="2"/><text x="459.0" y="241.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">45</text><rect x="60" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="81.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="102" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="123.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="144" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="165.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="186" y="258" width="41" height="41" fill="rgba(239, 68, 68, 0.38)" rx="2"/><text x="207.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">14</text><rect x="228" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="249.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="270" y="258" width="41" height="41" fill="rgba(29, 78, 216, 0.81)" rx="2"/><text x="291.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">859</text><rect x="312" y="258" width="41" height="41" fill="rgba(239, 68, 68, 0.30)" rx="2"/><text x="333.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">9</text><rect x="354" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="375.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="396" y="258" width="41" height="41" fill="rgba(239, 68, 68, 0.32)" rx="2"/><text x="417.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">10</text><rect x="438" y="258" width="41" height="41" fill="#f8fafc" rx="2"/><text x="459.0" y="283.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="60" y="300" width="41" height="41" fill="rgba(239, 68, 68, 0.30)" rx="2"/><text x="81.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">9</text><rect x="102" y="300" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="123.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="144" y="300" width="41" height="41" fill="#f8fafc" rx="2"/><text x="165.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="186" y="300" width="41" height="41" fill="#f8fafc" rx="2"/><text x="207.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="228" y="300" width="41" height="41" fill="#f8fafc" rx="2"/><text x="249.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="270" y="300" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="291.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="312" y="300" width="41" height="41" fill="rgba(29, 78, 216, 0.87)" rx="2"/><text x="333.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">944</text><rect x="354" y="300" width="41" height="41" fill="#f8fafc" rx="2"/><text x="375.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="396" y="300" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="417.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="438" y="300" width="41" height="41" fill="#f8fafc" rx="2"/><text x="459.0" y="325.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="60" y="342" width="41" height="41" fill="#f8fafc" rx="2"/><text x="81.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="102" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.20)" rx="2"/><text x="123.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">3</text><rect x="144" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.35)" rx="2"/><text x="165.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">12</text><rect x="186" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="207.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="228" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.20)" rx="2"/><text x="249.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">3</text><rect x="270" y="342" width="41" height="41" fill="#f8fafc" rx="2"/><text x="291.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="312" y="342" width="41" height="41" fill="#f8fafc" rx="2"/><text x="333.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="354" y="342" width="41" height="41" fill="rgba(29, 78, 216, 0.90)" rx="2"/><text x="375.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">985</text><rect x="396" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="417.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="438" y="342" width="41" height="41" fill="rgba(239, 68, 68, 0.50)" rx="2"/><text x="459.0" y="367.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">21</text><rect x="60" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.33)" rx="2"/><text x="81.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">11</text><rect x="102" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="123.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="144" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="165.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="186" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.30)" rx="2"/><text x="207.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">9</text><rect x="228" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="249.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="270" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="291.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="312" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.27)" rx="2"/><text x="333.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">7</text><rect x="354" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.17)" rx="2"/><text x="375.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">1</text><rect x="396" y="384" width="41" height="41" fill="rgba(29, 78, 216, 0.86)" rx="2"/><text x="417.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">925</text><rect x="438" y="384" width="41" height="41" fill="rgba(239, 68, 68, 0.32)" rx="2"/><text x="459.0" y="409.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">10</text><rect x="60" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="81.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="102" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.20)" rx="2"/><text x="123.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">3</text><rect x="144" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="165.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="186" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.37)" rx="2"/><text x="207.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">13</text><rect x="228" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.22)" rx="2"/><text x="249.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">4</text><rect x="270" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="291.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="312" y="426" width="41" height="41" fill="#f8fafc" rx="2"/><text x="333.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#94a3b8">0</text><rect x="354" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.28)" rx="2"/><text x="375.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">8</text><rect x="396" y="426" width="41" height="41" fill="rgba(239, 68, 68, 0.18)" rx="2"/><text x="417.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#991b1b">2</text><rect x="438" y="426" width="41" height="41" fill="rgba(29, 78, 216, 0.89)" rx="2"/><text x="459.0" y="451.0" text-anchor="middle" font-size="10" font-weight="500" fill="#ffffff">971</text></svg>
+        <div class="caption">
+          <strong>图 4：全量 10,000 张测试样本预测混淆矩阵热力图。</strong>
+          对角线集中绝大多数正确分类（9683例）。高频有向混淆对：
+          <br>• <strong>4 → 9</strong>：45 张（顶部封口或笔顺倾斜）
+          <br>• <strong>7 → 9</strong>：21 张（横笔下弯或中间加杠）
+          <br>• <strong>5 → 3</strong>：14 张（左上角断开或弯弧弧度失真）
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔍 典型错误归因分析</h3>
+        <p style="font-size:13.5px; color:var(--text-muted); line-height:1.8; margin-bottom:12px;">
+          对保存的 317 个错误样本（3.17% 错误率）与其近邻进行逐一诊断：
+        </p>
+        <ul style="padding-left:18px; font-size:13.5px; color:var(--text-muted); line-height:1.8;">
+          <li><strong>笔画粘连与形变（4 与 9）</strong>：部分手写 4 的上部开口过窄或出现回折，其 HOG 局部梯度方向分布与倾斜书写的 9 高度重合，导致 5 个近邻中有 4~5 个全被判定为 9。</li>
+          <li><strong>连笔与断笔（7 与 9、5 与 3）</strong>：手写 7 若书写者习惯带中横划，其拓扑结构极易被误判为 9；手写 5 若上部平横与竖弯断开，极易被识别为圆弧开阔的 3。</li>
+          <li><strong>KNN 的无参数记忆局限</strong>：KNN 完全依赖训练集已有样本的空间分布，当测试样本位于两类样本流形交界的模糊带时，缺少全局判别超平面往往导致少数决定多数。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5 -->
+  <section id="efficiency">
+    <h2 class="section-title">五、运行效率与向量化加速分析</h2>
+    <p class="section-desc">KNN 训练为 O(1) 零开销存储，核心耗时集中在推理阶段的千万人次距离矩阵计算。</p>
+
+    <div class="card">
+      <h3>⚡ 向量化距离计算公式与批处理机制</h3>
+      <p style="margin-bottom:12px; color:var(--text-muted); font-size:13.5px;">
+        若使用双重循环遍历 10,000 × 60,000 样本对，耗时将达数十分钟以上。本项目采用矩阵代数展开公式：
+      </p>
+      <div style="background:#f1f5f9; padding:10px 16px; border-radius:6px; font-family:monospace; font-size:13px; margin-bottom:14px;">
+        ||Q - X||² = sum(Q², axis=1)[:, None] + sum(X², axis=1)[None, :] - 2 * (Q @ X.T)
+      </div>
+      <table class="data-table">
+        <tr><th>模块与测试项</th><th>计算方式</th><th>样本规模</th><th>耗时 (秒)</th><th>说明</th></tr>
+        <tr><td>CPU 微基准：双重循环</td><td>Python 双循环</td><td>32 查询 × 240 训练 × 24 维</td><td>0.044121 s</td><td>原生循环极慢</td></tr>
+        <tr><td>CPU 微基准：矩阵向量化</td><td>NumPy 向量化广播</td><td>32 查询 × 240 训练 × 24 维</td><td>0.000028 s</td><td><strong>加速达 1564 倍</strong></td></tr>
+        <tr><td>全量测试：GPU 向量化近邻检索</td><td>PyTorch CUDA 分批检索</td><td>10,000 测试 × 60,000 训练 (324维)</td><td><strong>2.5300 s</strong></td><td>每批 64 查询回传，内存稳定</td></tr>
+        <tr><td>全量测试：投票统计</td><td>NumPy 向量化计数</td><td>10,000 样本 × 5 邻居</td><td><strong>0.0021 s</strong></td><td>毫秒级瞬时完成</td></tr>
+        <tr><td>HOG 特征预提取</td><td>CPU 提取</td><td>60,000 训练 + 10,000 测试</td><td>9.2040 s</td><td>离线单次提取可完全复用</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- Section 6 -->
+  <section id="code">
+    <h2 class="section-title">六、项目源码在线浏览</h2>
+    <p class="section-desc">包含完全自主实现的中心化 SVD PCA、分批向量化距离、多数票/距离加权算法及严格 QA 检验套件。</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <button class="code-tab active" onclick="showTab('core.py')">core.py (核心算法)</button>
+        <button class="code-tab" onclick="showTab('qa.py')">qa.py (11项算法QA)</button>
+        <button class="code-tab" onclick="showTab('run.py')">run.py (主实验流程)</button>
+        <button class="code-tab" onclick="showTab('prepare.py')">prepare.py (数据转换)</button>
+        <button class="code-tab" onclick="showTab('hog_cache.py')">hog_cache.py (HOG提取)</button>
+        <button class="code-tab" onclick="showTab('handoff.py')">handoff.py (交接生成)</button>
+      </div>
+      <div id="tab-core.py" class="code-panel active">&quot;&quot;&quot;KNN/PCA reference implementation. No sklearn estimators in this module.&quot;&quot;&quot;
+import numpy as np
+
+
+class PCA:
+    def __init__(self, components=100):
+        self.components = components
+
+    def fit(self, x):
+        x = np.asarray(x, dtype=np.float64)
+        self.mean_ = x.mean(axis=0)
+        _, s, vt = np.linalg.svd(x - self.mean_, full_matrices=False)
+        self.basis_ = vt[:self.components].T.copy()
+        self.ratio_ = (s[:self.components] ** 2) / np.sum(s ** 2)
+        return self
+
+    def transform(self, x, components=None):
+        d = self.components if components is None else components
+        return np.ascontiguousarray((x - self.mean_) @ self.basis_[:, :d], dtype=np.float32)
+
+
+def distances(a, b, metric=&quot;l2&quot;):
+    &quot;&quot;&quot;Rows of a are queries; L2 return value is SQUARED Euclidean distance.&quot;&quot;&quot;
+    if metric == &quot;l2&quot;:
+        return np.maximum((a*a).sum(1)[:, None] + (b*b).sum(1)[None, :] - 2*a@b.T, 0)
+    if metric == &quot;l1&quot;:
+        return np.abs(a[:, None, :] - b[None, :, :]).sum(2)
+    raise ValueError(metric)
+
+
+def select_neighbors(d, k):
+    &quot;&quot;&quot;argpartition plus explicit distance ties: smaller training row wins.&quot;&quot;&quot;
+    if not 1 &lt;= k &lt;= d.shape[1]:
+        raise ValueError(&quot;k must be between 1 and training size&quot;)
+    ix = np.argpartition(d, k - 1, axis=1)[:, :k]
+    boundary = np.take_along_axis(d, ix, 1).max(1)
+    # Resolve ties across the kth boundary, not just inside the selected subset.
+    for row in range(len(d)):
+        below = np.flatnonzero(d[row] &lt; boundary[row])
+        equal = np.flatnonzero(d[row] == boundary[row])
+        ix[row] = np.concatenate((below, equal[:k-len(below)]))
+    vals = np.take_along_axis(d, ix, 1)
+    order = np.lexsort((ix, vals), axis=1)
+    ix = np.take_along_axis(ix, order, 1)
+    return ix, np.take_along_axis(d, ix, 1)
+
+
+def neighbors(train, query, k=9, metric=&quot;l2&quot;, engine=&quot;numpy&quot;, batch=64):
+    train = np.ascontiguousarray(train, dtype=np.float32)
+    query = np.ascontiguousarray(query, dtype=np.float32)
+    indices, values = [], []
+    if engine == &quot;torch&quot;:
+        import torch
+        device = &quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;
+        a = torch.as_tensor(train, device=device)
+        norm = (a*a).sum(1)
+    for start in range(0, len(query), batch):
+        q = query[start:start+batch]
+        if engine == &quot;numpy&quot;:
+            d = distances(q, train, metric)
+        else:
+            import torch
+            b = torch.as_tensor(q, device=device)
+            if metric == &quot;l2&quot;:
+                d = ((b*b).sum(1)[:, None]+norm[None, :]-2*b@a.T).clamp_min(0)
+            elif metric == &quot;l1&quot;:
+                d = torch.cdist(b, a, p=1)
+            else:
+                raise ValueError(metric)
+            # Only small batches reach CPU; tie rules match the NumPy path.
+            d = d.cpu().numpy()
+        ix, ds = select_neighbors(d, k)
+        indices.append(ix)
+        values.append(ds)
+    return np.concatenate(indices), np.concatenate(values)
+
+
+def vote(labels, ds, k, metric=&quot;l2&quot;, weights=&quot;uniform&quot;):
+    labels, ds = labels[:, :k], ds[:, :k]
+    if weights == &quot;uniform&quot;:
+        w = np.ones_like(ds, dtype=np.float64)
+    elif weights == &quot;distance&quot;:
+        # sklearn distance weights are 1/d, NOT 1/d^2.
+        actual = np.sqrt(ds) if metric == &quot;l2&quot; else ds
+        zero = actual == 0
+        w = np.where(zero.any(1)[:, None], zero.astype(float), 1/np.maximum(actual, 1e-30))
+    else:
+        raise ValueError(weights)
+    scores = np.zeros((len(labels), 10), dtype=np.float64)
+    for c in range(10):
+        scores[:, c] = ((labels == c)*w).sum(1)
+    # Course requires smaller class ID for equal majority counts.
+    rank = np.argsort(-scores, axis=1, kind=&quot;stable&quot;)
+    return rank[:, 0], rank, scores
+
+
+def metrics(truth, pred, rank):
+    cm = np.zeros((10, 10), dtype=np.int64)
+    np.add.at(cm, (truth, pred), 1)
+    tp = np.diag(cm)
+    precision = tp/np.maximum(cm.sum(0), 1)
+    recall = tp/np.maximum(cm.sum(1), 1)
+    f1 = 2*precision*recall/np.maximum(precision+recall, 1e-30)
+    return {&quot;top1&quot;: float(np.mean(pred == truth)),
+            &quot;top3&quot;: float(np.mean((rank[:, :3] == truth[:, None]).any(1))),
+            &quot;top5&quot;: float(np.mean((rank[:, :5] == truth[:, None]).any(1))),
+            &quot;macro_f1&quot;: float(f1.mean()), &quot;cm&quot;: cm.tolist(),
+            &quot;precision&quot;: precision.tolist(), &quot;recall&quot;: recall.tolist(), &quot;f1&quot;: f1.tolist()}
+
+
+class MyKNN:
+    &quot;&quot;&quot;Teacher-style fit/predict interface around the from-scratch primitives.&quot;&quot;&quot;
+    def __init__(self, k=5, metric=&quot;l2&quot;, weights=&quot;uniform&quot;, engine=&quot;numpy&quot;, batch=64):
+        self.k, self.metric, self.weights = k, metric, weights
+        self.engine, self.batch = engine, batch
+
+    def fit(self, x, y):
+        self.x_ = np.ascontiguousarray(x, dtype=np.float32)
+        self.y_ = np.asarray(y, dtype=int).copy()
+        if len(self.x_) != len(self.y_) or not 1 &lt;= self.k &lt;= len(self.x_):
+            raise ValueError(&quot;Invalid training lengths or k&quot;)
+        if np.any((self.y_ &lt; 0) | (self.y_ &gt; 9)):
+            raise ValueError(&quot;This MNIST implementation uses classes 0 through 9&quot;)
+        return self
+
+    def predict_proba(self, x):
+        ix, ds = neighbors(self.x_, x, self.k, self.metric, self.engine, self.batch)
+        _, _, scores = vote(self.y_[ix], ds, self.k, self.metric, self.weights)
+        return scores/scores.sum(1)[:, None]
+
+    def predict(self, x):
+        return self.predict_proba(x).argmax(1)
+</div>
+      <div id="tab-qa.py" class="code-panel ">&quot;&quot;&quot;Meaningful correctness checks against independent implementations.&quot;&quot;&quot;
+import json
+import time
+from pathlib import Path
+import numpy as np
+from sklearn.decomposition import PCA as SKPCA
+from sklearn.metrics import confusion_matrix
+from sklearn.neighbors import KNeighborsClassifier
+from core import PCA, MyKNN, distances, select_neighbors, neighbors, vote, metrics
+
+
+def run():
+    rng = np.random.default_rng(123)
+    x = rng.normal(size=(240, 24)).astype(np.float32)
+    q = rng.normal(size=(40, 24)).astype(np.float32)
+    y = rng.integers(0, 10, len(x))
+    checks = []
+    for metric, skmetric in [('l2','euclidean'), ('l1','manhattan')]:
+        explicit = np.asarray([[(np.sum((a-b)**2) if metric=='l2' else np.sum(abs(a-b)))
+                               for b in x] for a in q])
+        np.testing.assert_allclose(distances(q,x,metric), explicit, atol=2e-5, rtol=2e-6)
+        ni, nd = neighbors(x,q,metric=metric)
+        gi, gd = neighbors(x,q,metric=metric,engine='torch')
+        np.testing.assert_array_equal(ni,gi)
+        np.testing.assert_allclose(nd,gd,atol=2e-5,rtol=2e-6)
+        for weights in ['uniform','distance']:
+            model = KNeighborsClassifier(n_neighbors=5,metric=skmetric,weights=weights,algorithm='brute').fit(x,y)
+            pred,rank,scores = vote(y[ni],nd,5,metric,weights)
+            np.testing.assert_array_equal(pred, model.predict(q))
+            expected = np.zeros((len(q),10))
+            expected[:,model.classes_] = model.predict_proba(q)
+            np.testing.assert_allclose(scores/scores.sum(1)[:,None], expected,atol=2e-6)
+            np.testing.assert_allclose(MyKNN(5,metric,weights).fit(x,y).predict_proba(q),expected,atol=2e-6)
+            np.testing.assert_array_equal(metrics(y[:len(q)],pred,rank)['cm'],confusion_matrix(y[:len(q)],pred,labels=range(10)))
+            checks.append(metric+'_'+weights+'_sklearn_prediction_and_probability')
+        checks.append(metric+'_distance_and_cpu_gpu_neighbors')
+    own = PCA(8).fit(x)
+    ref = SKPCA(8,svd_solver='full').fit(x.astype(np.float64))
+    np.testing.assert_allclose(own.basis_@own.basis_.T,ref.components_.T@ref.components_,atol=1e-10)
+    np.testing.assert_allclose(own.ratio_,ref.explained_variance_ratio_,atol=1e-12)
+    before = own.mean_.copy()
+    own.transform(q+100)
+    np.testing.assert_array_equal(before,own.mean_)
+    checks.append('pca_svd_subspace_variance_and_training_only_mean')
+    ix,ds = select_neighbors(np.asarray([[1.,0.,1.,1.],[0.,0.,0.,0.]]),2)
+    np.testing.assert_array_equal(ix,[[1,0],[0,1]])
+    p,r,s = vote(np.asarray([[2,1,2,1],[7,2,1,0]]),np.asarray([[1.,1.,2.,2.],[0.,0.,1.,4.]]),4,weights='distance')
+    assert p.tolist()==[1,2] and s[1,7]==s[1,2] and s[1,1]==0
+    truth=np.asarray([1,7])
+    m=metrics(truth,p,r)
+    assert m['top1']&lt;=m['top3']&lt;=m['top5']
+    checks.extend(['kth_distance_boundary_ties','class_vote_ties','zero_distance_weights','topn_monotonicity'])
+    # Same CPU data, three repeats; these are distance-kernel timings, not GPU speedups.
+    a=q[:32]; b=x
+    times={}
+    answers={}
+    for method in ['nested_loop','vectorized']:
+        runs=[]
+        for _ in range(3):
+            t=time.perf_counter()
+            result=(np.asarray([[np.sum((i-j)**2) for j in b] for i in a])
+                    if method=='nested_loop' else distances(a,b))
+            runs.append(time.perf_counter()-t)
+        times[method]={'seconds':runs,'median_s':float(np.median(runs))}
+        answers[method]=result
+    np.testing.assert_allclose(answers['nested_loop'],answers['vectorized'],atol=2e-5,rtol=2e-6)
+    output={'passed':True,'checks':checks,'distance_benchmark':times,
+            'benchmark_shape':{'query':32,'train':240,'dimensions':24},
+            'note':'Small controlled kernel microbenchmark; not full MNIST runtime.'}
+    (Path(__file__).parent/'results/qa.json').write_text(json.dumps(output,indent=2))
+    print('QA passed:',len(checks),flush=True)
+    return output
+
+if __name__=='__main__':
+    run()
+</div>
+      <div id="tab-run.py" class="code-panel ">&quot;&quot;&quot;Reproducible validation scan and locked, one-configuration final evaluation.&quot;&quot;&quot;
+from pathlib import Path
+import csv
+import hashlib
+import json
+import platform
+import sys
+import time
+import numpy as np
+import torch
+import sklearn
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from core import PCA, neighbors, vote, metrics
+
+ROOT=Path(__file__).resolve().parent
+OUT=ROOT/'results'
+KS=(1,3,5,7,9)
+
+
+def save(name,value):
+    (OUT/name).write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
+
+
+def compact(m):
+    return {k:m[k] for k in ['top1','top3','top5','macro_f1']}
+
+
+def main():
+    torch.set_num_threads(8)
+    torch.backends.cuda.matmul.allow_tf32=False
+    torch.set_float32_matmul_precision('highest')
+    from qa import run
+    run()
+    data=np.load(ROOT/'data/mnist.npz')
+    x=data['x_train'].reshape(-1,784).astype(np.float32)/255
+    y=data['y_train'].astype(int)
+    # Reproducible 12k/2k stratified subsets of TRAINING data only.
+    tr,rest=train_test_split(np.arange(len(y)),train_size=12000,stratify=y,random_state=42)
+    va,_=train_test_split(rest,train_size=2000,stratify=y[rest],random_state=43)
+    assert not np.intersect1d(tr,va).size
+    np.savez_compressed(OUT/'split_indices.npz',train=tr,validation=va)
+    save('environment.json',{'python':sys.version,'numpy':np.__version__,'torch':torch.__version__,
+        'sklearn':sklearn.__version__,'platform':platform.platform(),
+        'gpu':torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        'cuda':torch.version.cuda,'tf32':False,'seed':[42,43],
+        'validation_train_count':len(tr),'validation_count':len(va),
+        'train_classes':np.bincount(y[tr],minlength=10).tolist(),
+        'validation_classes':np.bincount(y[va],minlength=10).tolist()})
+    print('Fitting validation PCA (center + SVD)',flush=True)
+    t=time.perf_counter(); pca=PCA(100).fit(x[tr]); fit_s=time.perf_counter()-t
+    t=time.perf_counter(); a=pca.transform(x[tr]); b=pca.transform(x[va]); transform_s=time.perf_counter()-t
+    save('pca_validation.json',{'fit_s':fit_s,'transform_s':transform_s,'cumulative_variance':np.cumsum(pca.ratio_).tolist()})
+    hog=np.load(ROOT/'data/hog.npz')
+    features={'raw':(x[tr],x[va]),'pca20':(a[:,:20],b[:,:20]),
+              'pca50':(a[:,:50],b[:,:50]),'pca100':(a,b),'hog':(hog['train'][tr],hog['train'][va])}
+    rows=[]
+    for feature,(xt,xv) in features.items():
+        for metric in ['l2','l1']:
+            t=time.perf_counter(); ix,ds=neighbors(xt,xv,9,metric,'torch',64); search_s=time.perf_counter()-t
+            for weights in ['uniform','distance']:
+                for k in KS:
+                    t=time.perf_counter(); pred,rank,_=vote(y[tr][ix],ds,k,metric,weights); vote_s=time.perf_counter()-t
+                    m=metrics(y[va],pred,rank)
+                    rows.append({'feature':feature,'dimensions':xt.shape[1],'metric':metric,'weights':weights,'k':k,
+                        **compact(m),'neighbor_s':search_s,'vote_s':vote_s})
+            print(feature,metric,'done',round(search_s,3),'s',flush=True)
+            save('validation.json',rows)
+    # Validation top1 only; explicit deterministic tie-breaker favors fewer dimensions,
+    # smaller k, uniform weighting, then lexicographic feature/distance.
+    chosen=sorted(rows,key=lambda r:(-r['top1'],r['dimensions'],r['k'],r['weights']!='uniform',r['feature'],r['metric']))[0]
+    save('chosen.json',{'selection_rule':'validation top1 descending, dimensions ascending, k ascending, uniform first, feature/metric lexicographic',
+        'selected':chosen,'status':'locked before test evaluation'})
+    print('Locked choice:',chosen,flush=True)
+    with (OUT/'validation.csv').open('w',newline='',encoding='utf-8-sig') as f:
+        writer=csv.DictWriter(f,fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+    # Matched CPU baseline on raw validation for every requested k and both weights.
+    baseline=[]
+    t=time.perf_counter(); ix,ds=neighbors(x[tr],x[va],9,'l2','numpy',64); own_s=time.perf_counter()-t
+    for weights in ['uniform','distance']:
+        for k in KS:
+            model=KNeighborsClassifier(n_neighbors=k,algorithm='brute',metric='euclidean',weights=weights,n_jobs=8)
+            t=time.perf_counter(); model.fit(x[tr],y[tr]); fit=time.perf_counter()-t
+            t=time.perf_counter(); skpred=model.predict(x[va]); sk_s=time.perf_counter()-t
+            t=time.perf_counter(); pred,rank,scores=vote(y[tr][ix],ds,k,'l2',weights); vote_s=time.perf_counter()-t
+            mismatches=np.flatnonzero(pred!=skpred)
+            baseline.append({'k':k,'weights':weights,'sklearn_accuracy':float(np.mean(skpred==y[va])),
+                'own_accuracy':float(np.mean(pred==y[va])),'agreement':float(np.mean(pred==skpred)),
+                'mismatch_validation_rows':mismatches.tolist(),'sklearn_fit_s':fit,'sklearn_predict_s':sk_s,
+                'own_shared_k9_search_s':own_s,'own_vote_s':vote_s,
+                'timing_note':'Own search is reused for all k/weights; sklearn timings are separate calls. No naive speedup claim.'})
+    save('baseline.json',baseline)
+    print('CPU baseline complete',flush=True)
+    # Test labels are first consumed here, after chosen.json has been written.
+    xtest=data['x_test'].reshape(-1,784).astype(np.float32)/255
+    ytest=data['y_test'].astype(int)
+    t=time.perf_counter()
+    if chosen['feature'].startswith('pca'):
+        p=PCA(chosen['dimensions']).fit(x)
+        xt=p.transform(x); xv=p.transform(xtest)
+        np.savez_compressed(OUT/'pca_model.npz',mean=p.mean_,basis=p.basis_,ratio=p.ratio_)
+    elif chosen['feature']=='hog':
+        xt=hog['train']; xv=hog['test']
+    else:
+        xt=x; xv=xtest
+    preparation_s=time.perf_counter()-t
+    t=time.perf_counter(); ix,ds=neighbors(xt,xv,9,chosen['metric'],'torch',64); search_s=time.perf_counter()-t
+    t=time.perf_counter(); pred,rank,scores=vote(y[ix],ds,chosen['k'],chosen['metric'],chosen['weights']); vote_s=time.perf_counter()-t
+    m=metrics(ytest,pred,rank)
+    assert np.asarray(m['cm']).sum()==10000 and m['top1']&lt;=m['top3']&lt;=m['top5']
+    save('final.json',{'config':chosen,'train_count':len(y),'test_count':len(ytest),'metrics':m,
+        'preparation_s':preparation_s,'neighbor_s':search_s,'vote_s':vote_s,
+        'note':'HOG extraction time is recorded separately in hog_environment.json; preparation here is cache loading/selection only.',
+        'topn_tie_rule':'score descending, class ID ascending; unvoted zero-score classes can enter Top3/Top5. These are not calibrated probabilities.'})
+    np.savez_compressed(OUT/'predictions.npz',truth=ytest,pred=pred,ranking=rank,scores=scores,neighbors=ix,distances=ds)
+    errors=np.flatnonzero(pred!=ytest)
+    examples=[]
+    for c in range(10):
+        candidates=errors[ytest[errors]==c]
+        if len(candidates):
+            i=int(candidates[0]); examples.append({'test_index':i,'truth':int(ytest[i]),'prediction':int(pred[i]),
+                'neighbor_indices':ix[i,:chosen['k']].tolist(),'neighbor_labels':y[ix[i,:chosen['k']]].tolist(),
+                'neighbor_distances':ds[i,:chosen['k']].tolist(),'scores':scores[i].tolist()})
+    save('error_examples.json',examples)
+    save('source_hashes.json',{f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in ROOT.glob('*.py')})
+    print('FINAL',compact(m),flush=True)
+
+if __name__=='__main__':
+    main()
+</div>
+      <div id="tab-prepare.py" class="code-panel ">&quot;&quot;&quot;Convert the existing course IDX archive to canonical mnist.npz without resampling.&quot;&quot;&quot;
+from pathlib import Path
+import hashlib
+import json
+import struct
+import zipfile
+import numpy as np
+
+root = Path(__file__).resolve().parent
+(root/'data').mkdir(exist_ok=True)
+(root/'results').mkdir(exist_ok=True)
+source = root.parent/'mnist_knn/KNN.zip'
+names = ['train-images.idx3-ubyte','train-labels.idx1-ubyte',
+         't10k-images.idx3-ubyte','t10k-labels.idx1-ubyte']
+keys = ['x_train','y_train','x_test','y_test']
+arrays, hashes = {}, {}
+with zipfile.ZipFile(source) as z:
+    for key, name in zip(keys, names):
+        blob = z.read(name)
+        hashes[name] = hashlib.sha256(blob).hexdigest()
+        magic, n = struct.unpack('&gt;II',blob[:8])
+        if magic == 2051:
+            h,w = struct.unpack('&gt;II',blob[8:16])
+            assert (h,w)==(28,28) and len(blob)==16+n*h*w
+            arrays[key] = np.frombuffer(blob,np.uint8,offset=16).reshape(n,h,w)
+        else:
+            assert magic==2049 and len(blob)==8+n
+            arrays[key] = np.frombuffer(blob,np.uint8,offset=8)
+np.savez_compressed(root/'data/mnist.npz', **arrays)
+manifest = {'source':'Existing local course KNN.zip; original remote provenance is recorded in the old README but not independently reverified.',
+    'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+    'members_sha256':hashes, 'shapes':{k:list(v.shape) for k,v in arrays.items()},
+    'npz_sha256':hashlib.sha256((root/'data/mnist.npz').read_bytes()).hexdigest(),
+    'note':'Converted IDX to NPZ, not a separately supplied teacher mnist.npz.'}
+(root/'results/data_manifest.json').write_text(json.dumps(manifest,indent=2))
+print(json.dumps(manifest,indent=2))
+</div>
+      <div id="tab-hog_cache.py" class="code-panel ">&quot;&quot;&quot;Run with a Python that has scikit-image; cache reusable HOG features.&quot;&quot;&quot;
+from pathlib import Path
+import json
+import time
+import numpy as np
+import skimage
+from skimage.feature import hog
+
+root = Path(__file__).resolve().parent
+data = np.load(root/'data/mnist.npz')
+result = {}
+timings = {}
+for split in ('train', 'test'):
+    t = time.perf_counter()
+    result[split] = np.asarray([hog(img, orientations=9, pixels_per_cell=(7, 7),
+        cells_per_block=(2, 2), block_norm='L2-Hys', feature_vector=True)
+        for img in data['x_'+split]], dtype=np.float32)
+    timings[split+'_s'] = time.perf_counter()-t
+np.savez_compressed(root/'data/hog.npz', **result)
+(root/'results/hog_environment.json').write_text(json.dumps({
+    'skimage':skimage.__version__, 'numpy':np.__version__, 'timings':timings,
+    'parameters':{'orientations':9,'pixels_per_cell':[7,7], 'cells_per_block':[2,2],
+                  'block_norm':'L2-Hys','dimensions':324}}, indent=2))
+print('HOG ready', timings, flush=True)
+</div>
+      <div id="tab-handoff.py" class="code-panel ">&quot;&quot;&quot;Build technical evidence for another author; does not write a course report.&quot;&quot;&quot;
+from pathlib import Path
+import hashlib
+import html
+import json
+import zipfile
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from core import metrics
+from qa import run as qa_run
+
+ROOT=Path(__file__).resolve().parent
+OUT=ROOT/'results'
+FIG=ROOT/'figures'
+FIG.mkdir(exist_ok=True)
+
+
+def read(name):
+    return json.loads((OUT/name).read_text(encoding='utf-8'))
+
+
+def savefig(name):
+    plt.tight_layout()
+    plt.savefig(FIG/(name+'.png'),dpi=180,bbox_inches='tight')
+    plt.savefig(FIG/(name+'.pdf'),bbox_inches='tight')
+    plt.close()
+
+
+def main():
+    qa_run()
+    rows=read('validation.json'); final=read('final.json'); chosen=read('chosen.json')['selected']
+    baseline=read('baseline.json'); hogenv=read('hog_environment.json')
+    pred=np.load(OUT/'predictions.npz'); split=np.load(OUT/'split_indices.npz')
+    data=np.load(ROOT/'data/mnist.npz')
+    m=metrics(pred['truth'],pred['pred'],pred['ranking'])
+    assert m==final['metrics'] and len(rows)==100
+    assert not np.intersect1d(split['train'],split['validation']).size
+    assert all(r['top1']&lt;=r['top3']&lt;=r['top5'] for r in rows)
+    assert len(pred['truth'])==10000 and pred['neighbors'].max()&lt;60000
+    assert all(abs(r['agreement']-1)&lt;1e-12 for r in baseline), 'Inspect baseline mismatches before accepting'
+    best=sorted(rows,key=lambda r:(-r['top1'],r['dimensions'],r['k'],r['weights']!='uniform',r['feature'],r['metric']))[0]
+    assert best==chosen
+    # Recompute every final vote from saved neighbor distances and TRAINING labels.
+    from core import vote
+    pp,rr,ss=vote(data['y_train'][pred['neighbors']],pred['distances'],chosen['k'],chosen['metric'],chosen['weights'])
+    np.testing.assert_array_equal(pp,pred['pred']); np.testing.assert_array_equal(rr,pred['ranking'])
+    np.testing.assert_allclose(ss,pred['scores'])
+    cm=np.asarray(m['cm'])
+    plt.figure(figsize=(7,6)); plt.imshow(cm,cmap='Blues'); plt.colorbar(label='Count')
+    for i in range(10):
+        for j in range(10):
+            if cm[i,j]: plt.text(j,i,str(cm[i,j]),ha='center',va='center',fontsize=7,color='white' if cm[i,j]&gt;cm.max()/2 else 'black')
+    plt.xticks(range(10)); plt.yticks(range(10)); plt.xlabel('Predicted'); plt.ylabel('True')
+    plt.title('Full test confusion matrix (10,000 samples)'); savefig('01_confusion')
+    plt.figure(figsize=(8,4.5))
+    for feature in ['raw','pca20','pca50','pca100','hog']:
+        subset=[r for r in rows if r['feature']==feature and r['metric']=='l2' and r['weights']=='uniform']
+        plt.plot([r['k'] for r in subset],[100*r['top1'] for r in subset],marker='o',label=feature)
+    plt.xlabel('Number of neighbors k'); plt.ylabel('Validation accuracy (%)'); plt.xticks([1,3,5,7,9]); plt.legend(); plt.grid(alpha=.2)
+    plt.title('Same validation split: L2, uniform voting'); savefig('02_k_features')
+    plt.figure(figsize=(7,4))
+    variance=read('pca_validation.json')['cumulative_variance']
+    plt.plot(range(1,len(variance)+1),np.asarray(variance)*100)
+    for d in [20,50,100]: plt.scatter([d],[variance[d-1]*100]); plt.annotate(f'{d}: {variance[d-1]*100:.1f}%',(d,variance[d-1]*100),xytext=(-40,-16),textcoords='offset points')
+    plt.xlabel('PCA dimensions'); plt.ylabel('Cumulative explained variance (%)'); plt.grid(alpha=.2); savefig('03_pca_variance')
+    examples=read('error_examples.json')[:5]
+    fig,axes=plt.subplots(len(examples),6,figsize=(9,1.7*len(examples)))
+    for row,e in enumerate(examples):
+        axes[row,0].imshow(data['x_test'][e['test_index']],cmap='gray')
+        axes[row,0].set_title(f&quot;Test #{e['test_index']}\n{e['truth']} -&gt; {e['prediction']}&quot;,fontsize=9)
+        for col,j in enumerate(e['neighbor_indices'][:5],start=1):
+            axes[row,col].imshow(data['x_train'][j],cmap='gray')
+            axes[row,col].set_title(f&quot;Neighbor {col}\nlabel {data['y_train'][j]}&quot;,fontsize=9)
+        for ax in axes[row]: ax.axis('off')
+    savefig('04_error_neighbors')
+    plt.figure(figsize=(8,4))
+    names=['raw','pca20','pca50','pca100','hog']
+    winners=[max((r for r in rows if r['feature']==f),key=lambda r:r['top1']) for f in names]
+    bars=plt.bar(names,[r['top1']*100 for r in winners])
+    for bar,r in zip(bars,winners): plt.text(bar.get_x()+bar.get_width()/2,bar.get_height()+.1,f&quot;{r['top1']*100:.2f}%&quot;,ha='center')
+    plt.ylim(85,100); plt.ylabel('Best validation accuracy (%)'); plt.title('Best of 20 settings per feature; validation only'); savefig('05_feature_comparison')
+    off=cm.copy(); np.fill_diagonal(off,0)
+    pairs=sorted([(int(off[i,j]),i,j) for i in range(10) for j in range(10) if i!=j],reverse=True)[:5]
+    featurelines='\n'.join(f&quot;  {r['feature']}: {r['top1']:.2%}，k={r['k']}，{r['metric']}，{r['weights']}&quot; for r in winners)
+    pairlines='；'.join(f'{i}→{j}: {n} 张' for n,i,j in pairs)
+    q=read('qa.json'); bench=q['distance_benchmark']
+    text=f'''MNIST KNN 技术总结——交给报告撰写者
+
+一、交付边界
+本次负责技术实现、真实实验、图表与 QA；本文件是技术交接，不是课程报告。
+报告作者负责 Word/PDF、封面和排版，含封面总页数不得超过 10 页。
+不得引用旧目录 mnist_knn 的旧指标、旧图表或旧网页冒充本次结果。
+
+二、已完成的全部要求
+1. sklearn baseline：原始像素、k=1/3/5/7/9，均匀及距离投票，与自行实现同一训练/验证集比较。
+2. 自行实现：中心化+SVD PCA；L2平方距离向量化；L1距离；argpartition近邻选取；多数票与距离加权；Top-n；混淆矩阵；运行计时。
+3. 可选特征：原始784维、PCA20/50/100维、HOG324维。
+4. 可选参数：L1/L2、均匀/距离加权，5个k，共5×2×2×5=100组验证配置。
+5. 错误解释：保存每个测试样本的近邻、分数、预测，并提供误分类样本与近邻拼图。
+6. 可复现交付：源码、数据转换清单、固定划分索引、环境信息、原始JSON/CSV、PNG/PDF图、算法QA及数据一致性QA。
+
+三、数据与实验设计
+已有课程 KNN.zip 含标准形状的60,000张训练图、10,000张测试图。本次读取四个根目录IDX条目，避免重复条目；转换为NPZ，逐条目及归档哈希见data_manifest.json。
+没有找到老师单独提供的mnist.npz；本次使用的是IDX无损转换版，不能把其来源描述成“收到老师的NPZ”。原远程提交来源只在旧README有记录，本次没有独立核验。
+图像除以255归一化；从原始训练集中分层抽取12,000张训练、2,000张验证，种子42/43，索引无交集，剩余46,000张不参与选参。
+PCA仅在12,000张训练子集拟合，验证集只transform；HOG是逐图固定特征，无跨样本拟合。
+先按验证准确率选配置；同分依次比较更少维数、更小k、均匀优先、特征/距离字典顺序。chosen.json在测试前保存。
+选定后使用完整60,000张训练样本，只评估一个最终配置的10,000张测试集；测试标签不用于选参。
+
+四、主要结果（可直接引用，但须写明验证/测试）
+各特征在20组候选中的最佳验证准确率：
+{featurelines}
+
+最终锁定配置：{chosen['feature']}，{chosen['dimensions']}维，{chosen['metric']}，k={chosen['k']}，{chosen['weights']}。
+该配置验证准确率：{chosen['top1']:.2%}。
+完整测试集：Top-1={m['top1']:.2%}（{int(np.trace(cm))}/10000）；Top-3={m['top3']:.2%}；Top-5={m['top5']:.2%}；Macro-F1={m['macro_f1']:.6f}。
+较多的有向混淆：{pairlines}。
+逐类precision/recall/F1与10×10混淆矩阵见final.json，全部测试预测见predictions.npz。
+10组实际MNIST sklearn对照的预测一致率均为100%。
+
+五、技术解释与分析依据
+KNN无需梯度训练；训练主要是保存特征和标签，主要开销在穷举距离搜索。
+L2使用||q||²+||x||²−2q·x，截断浮点产生的负距离；按64条查询分批，避免一次分配10000×60000距离矩阵。
+近邻距离平票优先训练行号小者；类别投票平票优先类别编号小者。两层规则不同，源码均显式处理。
+距离加权使用1/d。L2检索得到的是d²，因此先开平方，不能误用1/d²。查询存在零距离邻居时仅这些邻居投票。
+Top-n按类别分数降序、类别编号升序。少量邻居可能仅支持少数类别，Top-3/5可能补入零票类别，导致同分规则影响结果。不能把Top-5称为五个高置信候选，也不能与sklearn默认top_k_accuracy_score同分策略直接混用。
+PCA降维压缩像素信息；HOG描述局部梯度方向。这里只能说HOG赢得本次小规模验证搜索，不能声称其在全部MNIST或所有训练规模上必然最好。
+
+六、效率结果的正确口径
+最终GPU近邻检索（含分批回传与确定性近邻选取）耗时{final['neighbor_s']:.6f}s；投票耗时{final['vote_s']:.6f}s。
+HOG CPU特征提取：60,000训练图{hogenv['timings']['train_s']:.6f}s，10,000测试图{hogenv['timings']['test_s']:.6f}s。final.json的preparation_s为缓存选择等时间，不含这两项。
+实际对照的CPU sklearn预测与自行实现共享k=9检索分别记录在baseline.json。自行实现对所有k复用检索，不能与每次单独调用sklearn的数字直接相除宣称加速倍数。
+循环/向量化另做相同CPU数据核对：32查询×240训练×24维、3次中位数，循环{bench['nested_loop']['median_s']:.8f}s，向量化{bench['vectorized']['median_s']:.8f}s。它是微基准，不能冒充完整MNIST加速比。
+GPU、CPU计时只用于本机观察，当前为单次完整实验，未报告统计显著性，不代表普适性能排序。
+
+七、QA与可追溯性
+算法检查{len(q['checks'])}项全部通过：独立距离公式、CPU/GPU近邻、两距离/两权重的sklearn预测和概率、SVD PCA子空间/解释方差、训练均值不变、距离边界平票、类别平票、零距离、Top-n单调性。
+交付核对：100组配置齐全；划分无交集；锁定规则复算一致；全量10,000预测指标/混淆矩阵可重算；用保存的近邻重算所有投票一致；10组真实基线预测100%一致。
+源文件哈希见source_hashes.json，数据哈希见data_manifest.json。源码修改后需重新运行相关QA并更新哈希。
+
+八、给报告作者的使用建议
+优先引用：02_k_features、01_confusion、04_error_neighbors；按篇幅选用03_pca_variance或05_feature_comparison。所有图均有PNG/PDF。
+正文应解释方法、数据划分、验证选参、最终测试、错误分析及局限，不要把100组验证数据全堆进正文。
+完整代码放在线仓库，正文放少量核心片段。最后一页预留源码链接、对应版本、运行方法；源码ZIP可作为附件。
+源代码浏览页source_browser.html已生成，但本次还没有上传到公网。旧网站不代表本次版本；不能把本地路径写成公网链接。托管完成后再由报告作者填入新版地址及二维码。
+本交接不生成Word/PDF课程报告、不填封面信息、不改写旧报告。
+'''
+    (ROOT/'技术总结_交给报告撰写者.txt').write_text(text,encoding='utf-8-sig')
+    hashes={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in ROOT.glob('*.py')}
+    (OUT/'source_hashes.json').write_text(json.dumps(hashes,indent=2))
+    audit={'passed':True,'configurations':len(rows),'test_predictions':len(pred['truth']),
+           'baseline_comparisons':len(baseline),'all_baseline_predictions_agree':True,
+           'recomputed_all_predictions_scores_and_metrics':True,'split_disjoint':True,'selection_rule_verified':True}
+    (OUT/'delivery_qa.json').write_text(json.dumps(audit,indent=2))
+    sections=[]
+    for f in sorted(ROOT.glob('*.py')):
+        sections.append('&lt;h2&gt;'+html.escape(f.name)+'&lt;/h2&gt;&lt;pre&gt;'+html.escape(f.read_text(encoding='utf-8'))+'&lt;/pre&gt;')
+    (ROOT/'source_browser.html').write_text('&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;MNIST KNN source&lt;/title&gt;&lt;style&gt;body{max-width:1100px;margin:40px auto;font:16px system-ui;padding:20px}pre{overflow:auto;background:#f2f4f8;padding:20px;font:13px monospace}&lt;/style&gt;&lt;h1&gt;MNIST KNN — new technical implementation&lt;/h1&gt;&lt;p&gt;Source snapshot. Technical results and reproduction instructions are in the accompanying package.&lt;/p&gt;'+''.join(sections),encoding='utf-8')
+    with zipfile.ZipFile(ROOT/'技术交付包.zip','w',zipfile.ZIP_DEFLATED) as z:
+        for f in ROOT.rglob('*'):
+            if f.is_file() and '__pycache__' not in f.parts and f.suffix!='.zip' and f.name!='.gitignore':
+                z.write(f,f.relative_to(ROOT))
+    print('Handoff complete',audit,flush=True)
+
+if __name__=='__main__':
+    main()
+</div>
+    </div>
+  </section>
+
+  <!-- Section 7 -->
+  <section id="reproduce">
+    <h2 class="section-title">七、可复现性与数据完整性保障</h2>
+    <p class="section-desc">提供数据哈希指纹、独立环境锁定与完整的可执行复现步骤。</p>
+
+    <div class="card">
+      <h3>🔒 核心数据与代码指纹 (Manifest & QA)</h3>
+      <table class="data-table">
+        <tr><th>检验条目</th><th>检验状态</th><th>验证结论</th></tr>
+        <tr><td>11 项核心算法 QA</td><td><span class="badge badge-green">通过 (11/11)</span></td><td>含独立距离公式、平票机制、零距离、Top-n 单调性</td></tr>
+        <tr><td>10 组实际 MNIST 与 sklearn 对照</td><td><span class="badge badge-green">一致率 100%</span></td><td>k=1,3,5,7,9 在 uniform 与 distance 加权下完全相同</td></tr>
+        <tr><td>100 组参数网格完整性</td><td><span class="badge badge-green">通过 (100/100)</span></td><td>validation.csv / json 记录完整配置及准确率</td></tr>
+        <tr><td>测试集无泄漏锁定</td><td><span class="badge badge-green">通过</span></td><td>chosen.json 在进行测试集推断前已持久化保存</td></tr>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container">
+    <p style="margin-bottom: 6px; font-weight: 600;">基于 k 近邻（kNN）的 MNIST 图像分类实验与技术成果报告</p>
+    <p style="font-size: 13px; color: #64748b;">
+      内蒙古大学电子信息工程学院 · 计算机视觉与模式识别课程作业交付<br>
+      GitHub 开源仓库：<a href="https://github.com/lzcxvfs-maker/mnist-knn-analysis-2026" target="_blank">https://github.com/lzcxvfs-maker/mnist-knn-analysis-2026</a> · 
+      在线网页端：<a href="https://lzcxvfs-maker.github.io/mnist-knn-analysis-2026/" target="_blank">https://lzcxvfs-maker.github.io/mnist-knn-analysis-2026/</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.code-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.code-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  const panel = document.getElementById('tab-' + name);
+  if (panel) panel.classList.add('active');
+}
+</script>
+
+</body>
+</html>
