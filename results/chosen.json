@@ -1,0 +1,17 @@
+{
+  "selection_rule": "validation top1 descending, dimensions ascending, k ascending, uniform first, feature/metric lexicographic",
+  "selected": {
+    "feature": "hog",
+    "dimensions": 324,
+    "metric": "l2",
+    "weights": "uniform",
+    "k": 5,
+    "top1": 0.96,
+    "top3": 0.988,
+    "top5": 0.991,
+    "macro_f1": 0.9599131748886501,
+    "neighbor_s": 0.11474119999911636,
+    "vote_s": 0.0004634000069927424
+  },
+  "status": "locked before test evaluation"
+}
