@@ -70,8 +70,10 @@ header p.lead {
   font-size: 30px;
   font-weight: 800;
   color: var(--text-main);
-  font-family: "Charter", Georgia, "Times New Roman", serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-variant-numeric: tabular-nums lining-nums;
   line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 .stat-box .label {
   font-size: 12px;
@@ -216,7 +218,7 @@ footer a { color: var(--text-main); text-decoration: underline; text-underline-o
         <h3>算法设计契约与平票仲裁</h3>
         <ul style="padding-left: 18px; font-size: 13.5px; color: var(--text-muted); line-height: 1.8;">
           <li><strong>近邻选择平票</strong>：当第 k 个近邻出现距离相同时，严格保留训练集行号更小的样本，保证检索绝对确定性。</li>
-          <li><strong>类别投票平票</strong>：当两个类别获得相同累计票数时，优先判定为类别编号较小的数字（0-9），契合课程标准。</li>
+          <li><strong>类别投票平票</strong>：当两个类别获得相同累计票数时，优先判定为类别编号较小的数字（0-9）。</li>
           <li><strong>加权距离定义</strong>：程序加权采用 <code>1/d</code>（先对平方距离开方），避免误用 <code>1/d²</code>；出现零距离时仅零距离邻居独享投票权。</li>
           <li><strong>Top-n 精度口径</strong>：按类别得分降序、类别编号升序排序，未获票类别得分归零后按编号补位，避免虚构高置信度。</li>
         </ul>
