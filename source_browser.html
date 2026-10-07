@@ -1,0 +1,565 @@
+<!doctype html><meta charset="utf-8"><title>MNIST KNN source</title><style>body{max-width:1100px;margin:40px auto;font:16px system-ui;padding:20px}pre{overflow:auto;background:#f2f4f8;padding:20px;font:13px monospace}</style><h1>MNIST KNN — new technical implementation</h1><p>Source snapshot. Technical results and reproduction instructions are in the accompanying package.</p><h2>core.py</h2><pre>&quot;&quot;&quot;KNN/PCA reference implementation. No sklearn estimators in this module.&quot;&quot;&quot;
+import numpy as np
+
+
+class PCA:
+    def __init__(self, components=100):
+        self.components = components
+
+    def fit(self, x):
+        x = np.asarray(x, dtype=np.float64)
+        self.mean_ = x.mean(axis=0)
+        _, s, vt = np.linalg.svd(x - self.mean_, full_matrices=False)
+        self.basis_ = vt[:self.components].T.copy()
+        self.ratio_ = (s[:self.components] ** 2) / np.sum(s ** 2)
+        return self
+
+    def transform(self, x, components=None):
+        d = self.components if components is None else components
+        return np.ascontiguousarray((x - self.mean_) @ self.basis_[:, :d], dtype=np.float32)
+
+
+def distances(a, b, metric=&quot;l2&quot;):
+    &quot;&quot;&quot;Rows of a are queries; L2 return value is SQUARED Euclidean distance.&quot;&quot;&quot;
+    if metric == &quot;l2&quot;:
+        return np.maximum((a*a).sum(1)[:, None] + (b*b).sum(1)[None, :] - 2*a@b.T, 0)
+    if metric == &quot;l1&quot;:
+        return np.abs(a[:, None, :] - b[None, :, :]).sum(2)
+    raise ValueError(metric)
+
+
+def select_neighbors(d, k):
+    &quot;&quot;&quot;argpartition plus explicit distance ties: smaller training row wins.&quot;&quot;&quot;
+    if not 1 &lt;= k &lt;= d.shape[1]:
+        raise ValueError(&quot;k must be between 1 and training size&quot;)
+    ix = np.argpartition(d, k - 1, axis=1)[:, :k]
+    boundary = np.take_along_axis(d, ix, 1).max(1)
+    # Resolve ties across the kth boundary, not just inside the selected subset.
+    for row in range(len(d)):
+        below = np.flatnonzero(d[row] &lt; boundary[row])
+        equal = np.flatnonzero(d[row] == boundary[row])
+        ix[row] = np.concatenate((below, equal[:k-len(below)]))
+    vals = np.take_along_axis(d, ix, 1)
+    order = np.lexsort((ix, vals), axis=1)
+    ix = np.take_along_axis(ix, order, 1)
+    return ix, np.take_along_axis(d, ix, 1)
+
+
+def neighbors(train, query, k=9, metric=&quot;l2&quot;, engine=&quot;numpy&quot;, batch=64):
+    train = np.ascontiguousarray(train, dtype=np.float32)
+    query = np.ascontiguousarray(query, dtype=np.float32)
+    indices, values = [], []
+    if engine == &quot;torch&quot;:
+        import torch
+        device = &quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;
+        a = torch.as_tensor(train, device=device)
+        norm = (a*a).sum(1)
+    for start in range(0, len(query), batch):
+        q = query[start:start+batch]
+        if engine == &quot;numpy&quot;:
+            d = distances(q, train, metric)
+        else:
+            import torch
+            b = torch.as_tensor(q, device=device)
+            if metric == &quot;l2&quot;:
+                d = ((b*b).sum(1)[:, None]+norm[None, :]-2*b@a.T).clamp_min(0)
+            elif metric == &quot;l1&quot;:
+                d = torch.cdist(b, a, p=1)
+            else:
+                raise ValueError(metric)
+            # Only small batches reach CPU; tie rules match the NumPy path.
+            d = d.cpu().numpy()
+        ix, ds = select_neighbors(d, k)
+        indices.append(ix)
+        values.append(ds)
+    return np.concatenate(indices), np.concatenate(values)
+
+
+def vote(labels, ds, k, metric=&quot;l2&quot;, weights=&quot;uniform&quot;):
+    labels, ds = labels[:, :k], ds[:, :k]
+    if weights == &quot;uniform&quot;:
+        w = np.ones_like(ds, dtype=np.float64)
+    elif weights == &quot;distance&quot;:
+        # sklearn distance weights are 1/d, NOT 1/d^2.
+        actual = np.sqrt(ds) if metric == &quot;l2&quot; else ds
+        zero = actual == 0
+        w = np.where(zero.any(1)[:, None], zero.astype(float), 1/np.maximum(actual, 1e-30))
+    else:
+        raise ValueError(weights)
+    scores = np.zeros((len(labels), 10), dtype=np.float64)
+    for c in range(10):
+        scores[:, c] = ((labels == c)*w).sum(1)
+    # Course requires smaller class ID for equal majority counts.
+    rank = np.argsort(-scores, axis=1, kind=&quot;stable&quot;)
+    return rank[:, 0], rank, scores
+
+
+def metrics(truth, pred, rank):
+    cm = np.zeros((10, 10), dtype=np.int64)
+    np.add.at(cm, (truth, pred), 1)
+    tp = np.diag(cm)
+    precision = tp/np.maximum(cm.sum(0), 1)
+    recall = tp/np.maximum(cm.sum(1), 1)
+    f1 = 2*precision*recall/np.maximum(precision+recall, 1e-30)
+    return {&quot;top1&quot;: float(np.mean(pred == truth)),
+            &quot;top3&quot;: float(np.mean((rank[:, :3] == truth[:, None]).any(1))),
+            &quot;top5&quot;: float(np.mean((rank[:, :5] == truth[:, None]).any(1))),
+            &quot;macro_f1&quot;: float(f1.mean()), &quot;cm&quot;: cm.tolist(),
+            &quot;precision&quot;: precision.tolist(), &quot;recall&quot;: recall.tolist(), &quot;f1&quot;: f1.tolist()}
+
+
+class MyKNN:
+    &quot;&quot;&quot;Teacher-style fit/predict interface around the from-scratch primitives.&quot;&quot;&quot;
+    def __init__(self, k=5, metric=&quot;l2&quot;, weights=&quot;uniform&quot;, engine=&quot;numpy&quot;, batch=64):
+        self.k, self.metric, self.weights = k, metric, weights
+        self.engine, self.batch = engine, batch
+
+    def fit(self, x, y):
+        self.x_ = np.ascontiguousarray(x, dtype=np.float32)
+        self.y_ = np.asarray(y, dtype=int).copy()
+        if len(self.x_) != len(self.y_) or not 1 &lt;= self.k &lt;= len(self.x_):
+            raise ValueError(&quot;Invalid training lengths or k&quot;)
+        if np.any((self.y_ &lt; 0) | (self.y_ &gt; 9)):
+            raise ValueError(&quot;This MNIST implementation uses classes 0 through 9&quot;)
+        return self
+
+    def predict_proba(self, x):
+        ix, ds = neighbors(self.x_, x, self.k, self.metric, self.engine, self.batch)
+        _, _, scores = vote(self.y_[ix], ds, self.k, self.metric, self.weights)
+        return scores/scores.sum(1)[:, None]
+
+    def predict(self, x):
+        return self.predict_proba(x).argmax(1)
+</pre><h2>handoff.py</h2><pre>&quot;&quot;&quot;Build technical evidence for another author; does not write a course report.&quot;&quot;&quot;
+from pathlib import Path
+import hashlib
+import html
+import json
+import zipfile
+import numpy as np
+import matplotlib
+matplotlib.use(&#x27;Agg&#x27;)
+import matplotlib.pyplot as plt
+from core import metrics
+from qa import run as qa_run
+
+ROOT=Path(__file__).resolve().parent
+OUT=ROOT/&#x27;results&#x27;
+FIG=ROOT/&#x27;figures&#x27;
+FIG.mkdir(exist_ok=True)
+
+
+def read(name):
+    return json.loads((OUT/name).read_text(encoding=&#x27;utf-8&#x27;))
+
+
+def savefig(name):
+    plt.tight_layout()
+    plt.savefig(FIG/(name+&#x27;.png&#x27;),dpi=180,bbox_inches=&#x27;tight&#x27;)
+    plt.savefig(FIG/(name+&#x27;.pdf&#x27;),bbox_inches=&#x27;tight&#x27;)
+    plt.close()
+
+
+def main():
+    qa_run()
+    rows=read(&#x27;validation.json&#x27;); final=read(&#x27;final.json&#x27;); chosen=read(&#x27;chosen.json&#x27;)[&#x27;selected&#x27;]
+    baseline=read(&#x27;baseline.json&#x27;); hogenv=read(&#x27;hog_environment.json&#x27;)
+    pred=np.load(OUT/&#x27;predictions.npz&#x27;); split=np.load(OUT/&#x27;split_indices.npz&#x27;)
+    data=np.load(ROOT/&#x27;data/mnist.npz&#x27;)
+    m=metrics(pred[&#x27;truth&#x27;],pred[&#x27;pred&#x27;],pred[&#x27;ranking&#x27;])
+    assert m==final[&#x27;metrics&#x27;] and len(rows)==100
+    assert not np.intersect1d(split[&#x27;train&#x27;],split[&#x27;validation&#x27;]).size
+    assert all(r[&#x27;top1&#x27;]&lt;=r[&#x27;top3&#x27;]&lt;=r[&#x27;top5&#x27;] for r in rows)
+    assert len(pred[&#x27;truth&#x27;])==10000 and pred[&#x27;neighbors&#x27;].max()&lt;60000
+    assert all(abs(r[&#x27;agreement&#x27;]-1)&lt;1e-12 for r in baseline), &#x27;Inspect baseline mismatches before accepting&#x27;
+    best=sorted(rows,key=lambda r:(-r[&#x27;top1&#x27;],r[&#x27;dimensions&#x27;],r[&#x27;k&#x27;],r[&#x27;weights&#x27;]!=&#x27;uniform&#x27;,r[&#x27;feature&#x27;],r[&#x27;metric&#x27;]))[0]
+    assert best==chosen
+    # Recompute every final vote from saved neighbor distances and TRAINING labels.
+    from core import vote
+    pp,rr,ss=vote(data[&#x27;y_train&#x27;][pred[&#x27;neighbors&#x27;]],pred[&#x27;distances&#x27;],chosen[&#x27;k&#x27;],chosen[&#x27;metric&#x27;],chosen[&#x27;weights&#x27;])
+    np.testing.assert_array_equal(pp,pred[&#x27;pred&#x27;]); np.testing.assert_array_equal(rr,pred[&#x27;ranking&#x27;])
+    np.testing.assert_allclose(ss,pred[&#x27;scores&#x27;])
+    cm=np.asarray(m[&#x27;cm&#x27;])
+    plt.figure(figsize=(7,6)); plt.imshow(cm,cmap=&#x27;Blues&#x27;); plt.colorbar(label=&#x27;Count&#x27;)
+    for i in range(10):
+        for j in range(10):
+            if cm[i,j]: plt.text(j,i,str(cm[i,j]),ha=&#x27;center&#x27;,va=&#x27;center&#x27;,fontsize=7,color=&#x27;white&#x27; if cm[i,j]&gt;cm.max()/2 else &#x27;black&#x27;)
+    plt.xticks(range(10)); plt.yticks(range(10)); plt.xlabel(&#x27;Predicted&#x27;); plt.ylabel(&#x27;True&#x27;)
+    plt.title(&#x27;Full test confusion matrix (10,000 samples)&#x27;); savefig(&#x27;01_confusion&#x27;)
+    plt.figure(figsize=(8,4.5))
+    for feature in [&#x27;raw&#x27;,&#x27;pca20&#x27;,&#x27;pca50&#x27;,&#x27;pca100&#x27;,&#x27;hog&#x27;]:
+        subset=[r for r in rows if r[&#x27;feature&#x27;]==feature and r[&#x27;metric&#x27;]==&#x27;l2&#x27; and r[&#x27;weights&#x27;]==&#x27;uniform&#x27;]
+        plt.plot([r[&#x27;k&#x27;] for r in subset],[100*r[&#x27;top1&#x27;] for r in subset],marker=&#x27;o&#x27;,label=feature)
+    plt.xlabel(&#x27;Number of neighbors k&#x27;); plt.ylabel(&#x27;Validation accuracy (%)&#x27;); plt.xticks([1,3,5,7,9]); plt.legend(); plt.grid(alpha=.2)
+    plt.title(&#x27;Same validation split: L2, uniform voting&#x27;); savefig(&#x27;02_k_features&#x27;)
+    plt.figure(figsize=(7,4))
+    variance=read(&#x27;pca_validation.json&#x27;)[&#x27;cumulative_variance&#x27;]
+    plt.plot(range(1,len(variance)+1),np.asarray(variance)*100)
+    for d in [20,50,100]: plt.scatter([d],[variance[d-1]*100]); plt.annotate(f&#x27;{d}: {variance[d-1]*100:.1f}%&#x27;,(d,variance[d-1]*100),xytext=(-40,-16),textcoords=&#x27;offset points&#x27;)
+    plt.xlabel(&#x27;PCA dimensions&#x27;); plt.ylabel(&#x27;Cumulative explained variance (%)&#x27;); plt.grid(alpha=.2); savefig(&#x27;03_pca_variance&#x27;)
+    examples=read(&#x27;error_examples.json&#x27;)[:5]
+    fig,axes=plt.subplots(len(examples),6,figsize=(9,1.7*len(examples)))
+    for row,e in enumerate(examples):
+        axes[row,0].imshow(data[&#x27;x_test&#x27;][e[&#x27;test_index&#x27;]],cmap=&#x27;gray&#x27;)
+        axes[row,0].set_title(f&quot;Test #{e[&#x27;test_index&#x27;]}\n{e[&#x27;truth&#x27;]} -&gt; {e[&#x27;prediction&#x27;]}&quot;,fontsize=9)
+        for col,j in enumerate(e[&#x27;neighbor_indices&#x27;][:5],start=1):
+            axes[row,col].imshow(data[&#x27;x_train&#x27;][j],cmap=&#x27;gray&#x27;)
+            axes[row,col].set_title(f&quot;Neighbor {col}\nlabel {data[&#x27;y_train&#x27;][j]}&quot;,fontsize=9)
+        for ax in axes[row]: ax.axis(&#x27;off&#x27;)
+    savefig(&#x27;04_error_neighbors&#x27;)
+    plt.figure(figsize=(8,4))
+    names=[&#x27;raw&#x27;,&#x27;pca20&#x27;,&#x27;pca50&#x27;,&#x27;pca100&#x27;,&#x27;hog&#x27;]
+    winners=[max((r for r in rows if r[&#x27;feature&#x27;]==f),key=lambda r:r[&#x27;top1&#x27;]) for f in names]
+    bars=plt.bar(names,[r[&#x27;top1&#x27;]*100 for r in winners])
+    for bar,r in zip(bars,winners): plt.text(bar.get_x()+bar.get_width()/2,bar.get_height()+.1,f&quot;{r[&#x27;top1&#x27;]*100:.2f}%&quot;,ha=&#x27;center&#x27;)
+    plt.ylim(85,100); plt.ylabel(&#x27;Best validation accuracy (%)&#x27;); plt.title(&#x27;Best of 20 settings per feature; validation only&#x27;); savefig(&#x27;05_feature_comparison&#x27;)
+    off=cm.copy(); np.fill_diagonal(off,0)
+    pairs=sorted([(int(off[i,j]),i,j) for i in range(10) for j in range(10) if i!=j],reverse=True)[:5]
+    featurelines=&#x27;\n&#x27;.join(f&quot;  {r[&#x27;feature&#x27;]}: {r[&#x27;top1&#x27;]:.2%}，k={r[&#x27;k&#x27;]}，{r[&#x27;metric&#x27;]}，{r[&#x27;weights&#x27;]}&quot; for r in winners)
+    pairlines=&#x27;；&#x27;.join(f&#x27;{i}→{j}: {n} 张&#x27; for n,i,j in pairs)
+    q=read(&#x27;qa.json&#x27;); bench=q[&#x27;distance_benchmark&#x27;]
+    text=f&#x27;&#x27;&#x27;MNIST KNN 技术总结——交给报告撰写者
+
+一、交付边界
+本次负责技术实现、真实实验、图表与 QA；本文件是技术交接，不是课程报告。
+报告作者负责 Word/PDF、封面和排版，含封面总页数不得超过 10 页。
+不得引用旧目录 mnist_knn 的旧指标、旧图表或旧网页冒充本次结果。
+
+二、已完成的全部要求
+1. sklearn baseline：原始像素、k=1/3/5/7/9，均匀及距离投票，与自行实现同一训练/验证集比较。
+2. 自行实现：中心化+SVD PCA；L2平方距离向量化；L1距离；argpartition近邻选取；多数票与距离加权；Top-n；混淆矩阵；运行计时。
+3. 可选特征：原始784维、PCA20/50/100维、HOG324维。
+4. 可选参数：L1/L2、均匀/距离加权，5个k，共5×2×2×5=100组验证配置。
+5. 错误解释：保存每个测试样本的近邻、分数、预测，并提供误分类样本与近邻拼图。
+6. 可复现交付：源码、数据转换清单、固定划分索引、环境信息、原始JSON/CSV、PNG/PDF图、算法QA及数据一致性QA。
+
+三、数据与实验设计
+已有课程 KNN.zip 含标准形状的60,000张训练图、10,000张测试图。本次读取四个根目录IDX条目，避免重复条目；转换为NPZ，逐条目及归档哈希见data_manifest.json。
+没有找到老师单独提供的mnist.npz；本次使用的是IDX无损转换版，不能把其来源描述成“收到老师的NPZ”。原远程提交来源只在旧README有记录，本次没有独立核验。
+图像除以255归一化；从原始训练集中分层抽取12,000张训练、2,000张验证，种子42/43，索引无交集，剩余46,000张不参与选参。
+PCA仅在12,000张训练子集拟合，验证集只transform；HOG是逐图固定特征，无跨样本拟合。
+先按验证准确率选配置；同分依次比较更少维数、更小k、均匀优先、特征/距离字典顺序。chosen.json在测试前保存。
+选定后使用完整60,000张训练样本，只评估一个最终配置的10,000张测试集；测试标签不用于选参。
+
+四、主要结果（可直接引用，但须写明验证/测试）
+各特征在20组候选中的最佳验证准确率：
+{featurelines}
+
+最终锁定配置：{chosen[&#x27;feature&#x27;]}，{chosen[&#x27;dimensions&#x27;]}维，{chosen[&#x27;metric&#x27;]}，k={chosen[&#x27;k&#x27;]}，{chosen[&#x27;weights&#x27;]}。
+该配置验证准确率：{chosen[&#x27;top1&#x27;]:.2%}。
+完整测试集：Top-1={m[&#x27;top1&#x27;]:.2%}（{int(np.trace(cm))}/10000）；Top-3={m[&#x27;top3&#x27;]:.2%}；Top-5={m[&#x27;top5&#x27;]:.2%}；Macro-F1={m[&#x27;macro_f1&#x27;]:.6f}。
+较多的有向混淆：{pairlines}。
+逐类precision/recall/F1与10×10混淆矩阵见final.json，全部测试预测见predictions.npz。
+10组实际MNIST sklearn对照的预测一致率均为100%。
+
+五、技术解释与分析依据
+KNN无需梯度训练；训练主要是保存特征和标签，主要开销在穷举距离搜索。
+L2使用||q||²+||x||²−2q·x，截断浮点产生的负距离；按64条查询分批，避免一次分配10000×60000距离矩阵。
+近邻距离平票优先训练行号小者；类别投票平票优先类别编号小者。两层规则不同，源码均显式处理。
+距离加权使用1/d。L2检索得到的是d²，因此先开平方，不能误用1/d²。查询存在零距离邻居时仅这些邻居投票。
+Top-n按类别分数降序、类别编号升序。少量邻居可能仅支持少数类别，Top-3/5可能补入零票类别，导致同分规则影响结果。不能把Top-5称为五个高置信候选，也不能与sklearn默认top_k_accuracy_score同分策略直接混用。
+PCA降维压缩像素信息；HOG描述局部梯度方向。这里只能说HOG赢得本次小规模验证搜索，不能声称其在全部MNIST或所有训练规模上必然最好。
+
+六、效率结果的正确口径
+最终GPU近邻检索（含分批回传与确定性近邻选取）耗时{final[&#x27;neighbor_s&#x27;]:.6f}s；投票耗时{final[&#x27;vote_s&#x27;]:.6f}s。
+HOG CPU特征提取：60,000训练图{hogenv[&#x27;timings&#x27;][&#x27;train_s&#x27;]:.6f}s，10,000测试图{hogenv[&#x27;timings&#x27;][&#x27;test_s&#x27;]:.6f}s。final.json的preparation_s为缓存选择等时间，不含这两项。
+实际对照的CPU sklearn预测与自行实现共享k=9检索分别记录在baseline.json。自行实现对所有k复用检索，不能与每次单独调用sklearn的数字直接相除宣称加速倍数。
+循环/向量化另做相同CPU数据核对：32查询×240训练×24维、3次中位数，循环{bench[&#x27;nested_loop&#x27;][&#x27;median_s&#x27;]:.8f}s，向量化{bench[&#x27;vectorized&#x27;][&#x27;median_s&#x27;]:.8f}s。它是微基准，不能冒充完整MNIST加速比。
+GPU、CPU计时只用于本机观察，当前为单次完整实验，未报告统计显著性，不代表普适性能排序。
+
+七、QA与可追溯性
+算法检查{len(q[&#x27;checks&#x27;])}项全部通过：独立距离公式、CPU/GPU近邻、两距离/两权重的sklearn预测和概率、SVD PCA子空间/解释方差、训练均值不变、距离边界平票、类别平票、零距离、Top-n单调性。
+交付核对：100组配置齐全；划分无交集；锁定规则复算一致；全量10,000预测指标/混淆矩阵可重算；用保存的近邻重算所有投票一致；10组真实基线预测100%一致。
+源文件哈希见source_hashes.json，数据哈希见data_manifest.json。源码修改后需重新运行相关QA并更新哈希。
+
+八、给报告作者的使用建议
+优先引用：02_k_features、01_confusion、04_error_neighbors；按篇幅选用03_pca_variance或05_feature_comparison。所有图均有PNG/PDF。
+正文应解释方法、数据划分、验证选参、最终测试、错误分析及局限，不要把100组验证数据全堆进正文。
+完整代码放在线仓库，正文放少量核心片段。最后一页预留源码链接、对应版本、运行方法；源码ZIP可作为附件。
+源代码浏览页source_browser.html已生成，但本次还没有上传到公网。旧网站不代表本次版本；不能把本地路径写成公网链接。托管完成后再由报告作者填入新版地址及二维码。
+本交接不生成Word/PDF课程报告、不填封面信息、不改写旧报告。
+&#x27;&#x27;&#x27;
+    (ROOT/&#x27;技术总结_交给报告撰写者.txt&#x27;).write_text(text,encoding=&#x27;utf-8-sig&#x27;)
+    hashes={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in ROOT.glob(&#x27;*.py&#x27;)}
+    (OUT/&#x27;source_hashes.json&#x27;).write_text(json.dumps(hashes,indent=2))
+    audit={&#x27;passed&#x27;:True,&#x27;configurations&#x27;:len(rows),&#x27;test_predictions&#x27;:len(pred[&#x27;truth&#x27;]),
+           &#x27;baseline_comparisons&#x27;:len(baseline),&#x27;all_baseline_predictions_agree&#x27;:True,
+           &#x27;recomputed_all_predictions_scores_and_metrics&#x27;:True,&#x27;split_disjoint&#x27;:True,&#x27;selection_rule_verified&#x27;:True}
+    (OUT/&#x27;delivery_qa.json&#x27;).write_text(json.dumps(audit,indent=2))
+    sections=[]
+    for f in sorted(ROOT.glob(&#x27;*.py&#x27;)):
+        sections.append(&#x27;&lt;h2&gt;&#x27;+html.escape(f.name)+&#x27;&lt;/h2&gt;&lt;pre&gt;&#x27;+html.escape(f.read_text(encoding=&#x27;utf-8&#x27;))+&#x27;&lt;/pre&gt;&#x27;)
+    (ROOT/&#x27;source_browser.html&#x27;).write_text(&#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;MNIST KNN source&lt;/title&gt;&lt;style&gt;body{max-width:1100px;margin:40px auto;font:16px system-ui;padding:20px}pre{overflow:auto;background:#f2f4f8;padding:20px;font:13px monospace}&lt;/style&gt;&lt;h1&gt;MNIST KNN — new technical implementation&lt;/h1&gt;&lt;p&gt;Source snapshot. Technical results and reproduction instructions are in the accompanying package.&lt;/p&gt;&#x27;+&#x27;&#x27;.join(sections),encoding=&#x27;utf-8&#x27;)
+    with zipfile.ZipFile(ROOT/&#x27;技术交付包.zip&#x27;,&#x27;w&#x27;,zipfile.ZIP_DEFLATED) as z:
+        for f in ROOT.rglob(&#x27;*&#x27;):
+            if f.is_file() and &#x27;__pycache__&#x27; not in f.parts and f.suffix!=&#x27;.zip&#x27; and f.name!=&#x27;.gitignore&#x27;:
+                z.write(f,f.relative_to(ROOT))
+    print(&#x27;Handoff complete&#x27;,audit,flush=True)
+
+if __name__==&#x27;__main__&#x27;:
+    main()
+</pre><h2>hog_cache.py</h2><pre>&quot;&quot;&quot;Run with a Python that has scikit-image; cache reusable HOG features.&quot;&quot;&quot;
+from pathlib import Path
+import json
+import time
+import numpy as np
+import skimage
+from skimage.feature import hog
+
+root = Path(__file__).resolve().parent
+data = np.load(root/&#x27;data/mnist.npz&#x27;)
+result = {}
+timings = {}
+for split in (&#x27;train&#x27;, &#x27;test&#x27;):
+    t = time.perf_counter()
+    result[split] = np.asarray([hog(img, orientations=9, pixels_per_cell=(7, 7),
+        cells_per_block=(2, 2), block_norm=&#x27;L2-Hys&#x27;, feature_vector=True)
+        for img in data[&#x27;x_&#x27;+split]], dtype=np.float32)
+    timings[split+&#x27;_s&#x27;] = time.perf_counter()-t
+np.savez_compressed(root/&#x27;data/hog.npz&#x27;, **result)
+(root/&#x27;results/hog_environment.json&#x27;).write_text(json.dumps({
+    &#x27;skimage&#x27;:skimage.__version__, &#x27;numpy&#x27;:np.__version__, &#x27;timings&#x27;:timings,
+    &#x27;parameters&#x27;:{&#x27;orientations&#x27;:9,&#x27;pixels_per_cell&#x27;:[7,7], &#x27;cells_per_block&#x27;:[2,2],
+                  &#x27;block_norm&#x27;:&#x27;L2-Hys&#x27;,&#x27;dimensions&#x27;:324}}, indent=2))
+print(&#x27;HOG ready&#x27;, timings, flush=True)
+</pre><h2>prepare.py</h2><pre>&quot;&quot;&quot;Convert the existing course IDX archive to canonical mnist.npz without resampling.&quot;&quot;&quot;
+from pathlib import Path
+import hashlib
+import json
+import struct
+import zipfile
+import numpy as np
+
+root = Path(__file__).resolve().parent
+(root/&#x27;data&#x27;).mkdir(exist_ok=True)
+(root/&#x27;results&#x27;).mkdir(exist_ok=True)
+source = root.parent/&#x27;mnist_knn/KNN.zip&#x27;
+names = [&#x27;train-images.idx3-ubyte&#x27;,&#x27;train-labels.idx1-ubyte&#x27;,
+         &#x27;t10k-images.idx3-ubyte&#x27;,&#x27;t10k-labels.idx1-ubyte&#x27;]
+keys = [&#x27;x_train&#x27;,&#x27;y_train&#x27;,&#x27;x_test&#x27;,&#x27;y_test&#x27;]
+arrays, hashes = {}, {}
+with zipfile.ZipFile(source) as z:
+    for key, name in zip(keys, names):
+        blob = z.read(name)
+        hashes[name] = hashlib.sha256(blob).hexdigest()
+        magic, n = struct.unpack(&#x27;&gt;II&#x27;,blob[:8])
+        if magic == 2051:
+            h,w = struct.unpack(&#x27;&gt;II&#x27;,blob[8:16])
+            assert (h,w)==(28,28) and len(blob)==16+n*h*w
+            arrays[key] = np.frombuffer(blob,np.uint8,offset=16).reshape(n,h,w)
+        else:
+            assert magic==2049 and len(blob)==8+n
+            arrays[key] = np.frombuffer(blob,np.uint8,offset=8)
+np.savez_compressed(root/&#x27;data/mnist.npz&#x27;, **arrays)
+manifest = {&#x27;source&#x27;:&#x27;Existing local course KNN.zip; original remote provenance is recorded in the old README but not independently reverified.&#x27;,
+    &#x27;source_sha256&#x27;:hashlib.sha256(source.read_bytes()).hexdigest(),
+    &#x27;members_sha256&#x27;:hashes, &#x27;shapes&#x27;:{k:list(v.shape) for k,v in arrays.items()},
+    &#x27;npz_sha256&#x27;:hashlib.sha256((root/&#x27;data/mnist.npz&#x27;).read_bytes()).hexdigest(),
+    &#x27;note&#x27;:&#x27;Converted IDX to NPZ, not a separately supplied teacher mnist.npz.&#x27;}
+(root/&#x27;results/data_manifest.json&#x27;).write_text(json.dumps(manifest,indent=2))
+print(json.dumps(manifest,indent=2))
+</pre><h2>qa.py</h2><pre>&quot;&quot;&quot;Meaningful correctness checks against independent implementations.&quot;&quot;&quot;
+import json
+import time
+from pathlib import Path
+import numpy as np
+from sklearn.decomposition import PCA as SKPCA
+from sklearn.metrics import confusion_matrix
+from sklearn.neighbors import KNeighborsClassifier
+from core import PCA, MyKNN, distances, select_neighbors, neighbors, vote, metrics
+
+
+def run():
+    rng = np.random.default_rng(123)
+    x = rng.normal(size=(240, 24)).astype(np.float32)
+    q = rng.normal(size=(40, 24)).astype(np.float32)
+    y = rng.integers(0, 10, len(x))
+    checks = []
+    for metric, skmetric in [(&#x27;l2&#x27;,&#x27;euclidean&#x27;), (&#x27;l1&#x27;,&#x27;manhattan&#x27;)]:
+        explicit = np.asarray([[(np.sum((a-b)**2) if metric==&#x27;l2&#x27; else np.sum(abs(a-b)))
+                               for b in x] for a in q])
+        np.testing.assert_allclose(distances(q,x,metric), explicit, atol=2e-5, rtol=2e-6)
+        ni, nd = neighbors(x,q,metric=metric)
+        gi, gd = neighbors(x,q,metric=metric,engine=&#x27;torch&#x27;)
+        np.testing.assert_array_equal(ni,gi)
+        np.testing.assert_allclose(nd,gd,atol=2e-5,rtol=2e-6)
+        for weights in [&#x27;uniform&#x27;,&#x27;distance&#x27;]:
+            model = KNeighborsClassifier(n_neighbors=5,metric=skmetric,weights=weights,algorithm=&#x27;brute&#x27;).fit(x,y)
+            pred,rank,scores = vote(y[ni],nd,5,metric,weights)
+            np.testing.assert_array_equal(pred, model.predict(q))
+            expected = np.zeros((len(q),10))
+            expected[:,model.classes_] = model.predict_proba(q)
+            np.testing.assert_allclose(scores/scores.sum(1)[:,None], expected,atol=2e-6)
+            np.testing.assert_allclose(MyKNN(5,metric,weights).fit(x,y).predict_proba(q),expected,atol=2e-6)
+            np.testing.assert_array_equal(metrics(y[:len(q)],pred,rank)[&#x27;cm&#x27;],confusion_matrix(y[:len(q)],pred,labels=range(10)))
+            checks.append(metric+&#x27;_&#x27;+weights+&#x27;_sklearn_prediction_and_probability&#x27;)
+        checks.append(metric+&#x27;_distance_and_cpu_gpu_neighbors&#x27;)
+    own = PCA(8).fit(x)
+    ref = SKPCA(8,svd_solver=&#x27;full&#x27;).fit(x.astype(np.float64))
+    np.testing.assert_allclose(own.basis_@own.basis_.T,ref.components_.T@ref.components_,atol=1e-10)
+    np.testing.assert_allclose(own.ratio_,ref.explained_variance_ratio_,atol=1e-12)
+    before = own.mean_.copy()
+    own.transform(q+100)
+    np.testing.assert_array_equal(before,own.mean_)
+    checks.append(&#x27;pca_svd_subspace_variance_and_training_only_mean&#x27;)
+    ix,ds = select_neighbors(np.asarray([[1.,0.,1.,1.],[0.,0.,0.,0.]]),2)
+    np.testing.assert_array_equal(ix,[[1,0],[0,1]])
+    p,r,s = vote(np.asarray([[2,1,2,1],[7,2,1,0]]),np.asarray([[1.,1.,2.,2.],[0.,0.,1.,4.]]),4,weights=&#x27;distance&#x27;)
+    assert p.tolist()==[1,2] and s[1,7]==s[1,2] and s[1,1]==0
+    truth=np.asarray([1,7])
+    m=metrics(truth,p,r)
+    assert m[&#x27;top1&#x27;]&lt;=m[&#x27;top3&#x27;]&lt;=m[&#x27;top5&#x27;]
+    checks.extend([&#x27;kth_distance_boundary_ties&#x27;,&#x27;class_vote_ties&#x27;,&#x27;zero_distance_weights&#x27;,&#x27;topn_monotonicity&#x27;])
+    # Same CPU data, three repeats; these are distance-kernel timings, not GPU speedups.
+    a=q[:32]; b=x
+    times={}
+    answers={}
+    for method in [&#x27;nested_loop&#x27;,&#x27;vectorized&#x27;]:
+        runs=[]
+        for _ in range(3):
+            t=time.perf_counter()
+            result=(np.asarray([[np.sum((i-j)**2) for j in b] for i in a])
+                    if method==&#x27;nested_loop&#x27; else distances(a,b))
+            runs.append(time.perf_counter()-t)
+        times[method]={&#x27;seconds&#x27;:runs,&#x27;median_s&#x27;:float(np.median(runs))}
+        answers[method]=result
+    np.testing.assert_allclose(answers[&#x27;nested_loop&#x27;],answers[&#x27;vectorized&#x27;],atol=2e-5,rtol=2e-6)
+    output={&#x27;passed&#x27;:True,&#x27;checks&#x27;:checks,&#x27;distance_benchmark&#x27;:times,
+            &#x27;benchmark_shape&#x27;:{&#x27;query&#x27;:32,&#x27;train&#x27;:240,&#x27;dimensions&#x27;:24},
+            &#x27;note&#x27;:&#x27;Small controlled kernel microbenchmark; not full MNIST runtime.&#x27;}
+    (Path(__file__).parent/&#x27;results/qa.json&#x27;).write_text(json.dumps(output,indent=2))
+    print(&#x27;QA passed:&#x27;,len(checks),flush=True)
+    return output
+
+if __name__==&#x27;__main__&#x27;:
+    run()
+</pre><h2>run.py</h2><pre>&quot;&quot;&quot;Reproducible validation scan and locked, one-configuration final evaluation.&quot;&quot;&quot;
+from pathlib import Path
+import csv
+import hashlib
+import json
+import platform
+import sys
+import time
+import numpy as np
+import torch
+import sklearn
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from core import PCA, neighbors, vote, metrics
+
+ROOT=Path(__file__).resolve().parent
+OUT=ROOT/&#x27;results&#x27;
+KS=(1,3,5,7,9)
+
+
+def save(name,value):
+    (OUT/name).write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding=&#x27;utf-8&#x27;)
+
+
+def compact(m):
+    return {k:m[k] for k in [&#x27;top1&#x27;,&#x27;top3&#x27;,&#x27;top5&#x27;,&#x27;macro_f1&#x27;]}
+
+
+def main():
+    torch.set_num_threads(8)
+    torch.backends.cuda.matmul.allow_tf32=False
+    torch.set_float32_matmul_precision(&#x27;highest&#x27;)
+    from qa import run
+    run()
+    data=np.load(ROOT/&#x27;data/mnist.npz&#x27;)
+    x=data[&#x27;x_train&#x27;].reshape(-1,784).astype(np.float32)/255
+    y=data[&#x27;y_train&#x27;].astype(int)
+    # Reproducible 12k/2k stratified subsets of TRAINING data only.
+    tr,rest=train_test_split(np.arange(len(y)),train_size=12000,stratify=y,random_state=42)
+    va,_=train_test_split(rest,train_size=2000,stratify=y[rest],random_state=43)
+    assert not np.intersect1d(tr,va).size
+    np.savez_compressed(OUT/&#x27;split_indices.npz&#x27;,train=tr,validation=va)
+    save(&#x27;environment.json&#x27;,{&#x27;python&#x27;:sys.version,&#x27;numpy&#x27;:np.__version__,&#x27;torch&#x27;:torch.__version__,
+        &#x27;sklearn&#x27;:sklearn.__version__,&#x27;platform&#x27;:platform.platform(),
+        &#x27;gpu&#x27;:torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        &#x27;cuda&#x27;:torch.version.cuda,&#x27;tf32&#x27;:False,&#x27;seed&#x27;:[42,43],
+        &#x27;validation_train_count&#x27;:len(tr),&#x27;validation_count&#x27;:len(va),
+        &#x27;train_classes&#x27;:np.bincount(y[tr],minlength=10).tolist(),
+        &#x27;validation_classes&#x27;:np.bincount(y[va],minlength=10).tolist()})
+    print(&#x27;Fitting validation PCA (center + SVD)&#x27;,flush=True)
+    t=time.perf_counter(); pca=PCA(100).fit(x[tr]); fit_s=time.perf_counter()-t
+    t=time.perf_counter(); a=pca.transform(x[tr]); b=pca.transform(x[va]); transform_s=time.perf_counter()-t
+    save(&#x27;pca_validation.json&#x27;,{&#x27;fit_s&#x27;:fit_s,&#x27;transform_s&#x27;:transform_s,&#x27;cumulative_variance&#x27;:np.cumsum(pca.ratio_).tolist()})
+    hog=np.load(ROOT/&#x27;data/hog.npz&#x27;)
+    features={&#x27;raw&#x27;:(x[tr],x[va]),&#x27;pca20&#x27;:(a[:,:20],b[:,:20]),
+              &#x27;pca50&#x27;:(a[:,:50],b[:,:50]),&#x27;pca100&#x27;:(a,b),&#x27;hog&#x27;:(hog[&#x27;train&#x27;][tr],hog[&#x27;train&#x27;][va])}
+    rows=[]
+    for feature,(xt,xv) in features.items():
+        for metric in [&#x27;l2&#x27;,&#x27;l1&#x27;]:
+            t=time.perf_counter(); ix,ds=neighbors(xt,xv,9,metric,&#x27;torch&#x27;,64); search_s=time.perf_counter()-t
+            for weights in [&#x27;uniform&#x27;,&#x27;distance&#x27;]:
+                for k in KS:
+                    t=time.perf_counter(); pred,rank,_=vote(y[tr][ix],ds,k,metric,weights); vote_s=time.perf_counter()-t
+                    m=metrics(y[va],pred,rank)
+                    rows.append({&#x27;feature&#x27;:feature,&#x27;dimensions&#x27;:xt.shape[1],&#x27;metric&#x27;:metric,&#x27;weights&#x27;:weights,&#x27;k&#x27;:k,
+                        **compact(m),&#x27;neighbor_s&#x27;:search_s,&#x27;vote_s&#x27;:vote_s})
+            print(feature,metric,&#x27;done&#x27;,round(search_s,3),&#x27;s&#x27;,flush=True)
+            save(&#x27;validation.json&#x27;,rows)
+    # Validation top1 only; explicit deterministic tie-breaker favors fewer dimensions,
+    # smaller k, uniform weighting, then lexicographic feature/distance.
+    chosen=sorted(rows,key=lambda r:(-r[&#x27;top1&#x27;],r[&#x27;dimensions&#x27;],r[&#x27;k&#x27;],r[&#x27;weights&#x27;]!=&#x27;uniform&#x27;,r[&#x27;feature&#x27;],r[&#x27;metric&#x27;]))[0]
+    save(&#x27;chosen.json&#x27;,{&#x27;selection_rule&#x27;:&#x27;validation top1 descending, dimensions ascending, k ascending, uniform first, feature/metric lexicographic&#x27;,
+        &#x27;selected&#x27;:chosen,&#x27;status&#x27;:&#x27;locked before test evaluation&#x27;})
+    print(&#x27;Locked choice:&#x27;,chosen,flush=True)
+    with (OUT/&#x27;validation.csv&#x27;).open(&#x27;w&#x27;,newline=&#x27;&#x27;,encoding=&#x27;utf-8-sig&#x27;) as f:
+        writer=csv.DictWriter(f,fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+    # Matched CPU baseline on raw validation for every requested k and both weights.
+    baseline=[]
+    t=time.perf_counter(); ix,ds=neighbors(x[tr],x[va],9,&#x27;l2&#x27;,&#x27;numpy&#x27;,64); own_s=time.perf_counter()-t
+    for weights in [&#x27;uniform&#x27;,&#x27;distance&#x27;]:
+        for k in KS:
+            model=KNeighborsClassifier(n_neighbors=k,algorithm=&#x27;brute&#x27;,metric=&#x27;euclidean&#x27;,weights=weights,n_jobs=8)
+            t=time.perf_counter(); model.fit(x[tr],y[tr]); fit=time.perf_counter()-t
+            t=time.perf_counter(); skpred=model.predict(x[va]); sk_s=time.perf_counter()-t
+            t=time.perf_counter(); pred,rank,scores=vote(y[tr][ix],ds,k,&#x27;l2&#x27;,weights); vote_s=time.perf_counter()-t
+            mismatches=np.flatnonzero(pred!=skpred)
+            baseline.append({&#x27;k&#x27;:k,&#x27;weights&#x27;:weights,&#x27;sklearn_accuracy&#x27;:float(np.mean(skpred==y[va])),
+                &#x27;own_accuracy&#x27;:float(np.mean(pred==y[va])),&#x27;agreement&#x27;:float(np.mean(pred==skpred)),
+                &#x27;mismatch_validation_rows&#x27;:mismatches.tolist(),&#x27;sklearn_fit_s&#x27;:fit,&#x27;sklearn_predict_s&#x27;:sk_s,
+                &#x27;own_shared_k9_search_s&#x27;:own_s,&#x27;own_vote_s&#x27;:vote_s,
+                &#x27;timing_note&#x27;:&#x27;Own search is reused for all k/weights; sklearn timings are separate calls. No naive speedup claim.&#x27;})
+    save(&#x27;baseline.json&#x27;,baseline)
+    print(&#x27;CPU baseline complete&#x27;,flush=True)
+    # Test labels are first consumed here, after chosen.json has been written.
+    xtest=data[&#x27;x_test&#x27;].reshape(-1,784).astype(np.float32)/255
+    ytest=data[&#x27;y_test&#x27;].astype(int)
+    t=time.perf_counter()
+    if chosen[&#x27;feature&#x27;].startswith(&#x27;pca&#x27;):
+        p=PCA(chosen[&#x27;dimensions&#x27;]).fit(x)
+        xt=p.transform(x); xv=p.transform(xtest)
+        np.savez_compressed(OUT/&#x27;pca_model.npz&#x27;,mean=p.mean_,basis=p.basis_,ratio=p.ratio_)
+    elif chosen[&#x27;feature&#x27;]==&#x27;hog&#x27;:
+        xt=hog[&#x27;train&#x27;]; xv=hog[&#x27;test&#x27;]
+    else:
+        xt=x; xv=xtest
+    preparation_s=time.perf_counter()-t
+    t=time.perf_counter(); ix,ds=neighbors(xt,xv,9,chosen[&#x27;metric&#x27;],&#x27;torch&#x27;,64); search_s=time.perf_counter()-t
+    t=time.perf_counter(); pred,rank,scores=vote(y[ix],ds,chosen[&#x27;k&#x27;],chosen[&#x27;metric&#x27;],chosen[&#x27;weights&#x27;]); vote_s=time.perf_counter()-t
+    m=metrics(ytest,pred,rank)
+    assert np.asarray(m[&#x27;cm&#x27;]).sum()==10000 and m[&#x27;top1&#x27;]&lt;=m[&#x27;top3&#x27;]&lt;=m[&#x27;top5&#x27;]
+    save(&#x27;final.json&#x27;,{&#x27;config&#x27;:chosen,&#x27;train_count&#x27;:len(y),&#x27;test_count&#x27;:len(ytest),&#x27;metrics&#x27;:m,
+        &#x27;preparation_s&#x27;:preparation_s,&#x27;neighbor_s&#x27;:search_s,&#x27;vote_s&#x27;:vote_s,
+        &#x27;note&#x27;:&#x27;HOG extraction time is recorded separately in hog_environment.json; preparation here is cache loading/selection only.&#x27;,
+        &#x27;topn_tie_rule&#x27;:&#x27;score descending, class ID ascending; unvoted zero-score classes can enter Top3/Top5. These are not calibrated probabilities.&#x27;})
+    np.savez_compressed(OUT/&#x27;predictions.npz&#x27;,truth=ytest,pred=pred,ranking=rank,scores=scores,neighbors=ix,distances=ds)
+    errors=np.flatnonzero(pred!=ytest)
+    examples=[]
+    for c in range(10):
+        candidates=errors[ytest[errors]==c]
+        if len(candidates):
+            i=int(candidates[0]); examples.append({&#x27;test_index&#x27;:i,&#x27;truth&#x27;:int(ytest[i]),&#x27;prediction&#x27;:int(pred[i]),
+                &#x27;neighbor_indices&#x27;:ix[i,:chosen[&#x27;k&#x27;]].tolist(),&#x27;neighbor_labels&#x27;:y[ix[i,:chosen[&#x27;k&#x27;]]].tolist(),
+                &#x27;neighbor_distances&#x27;:ds[i,:chosen[&#x27;k&#x27;]].tolist(),&#x27;scores&#x27;:scores[i].tolist()})
+    save(&#x27;error_examples.json&#x27;,examples)
+    save(&#x27;source_hashes.json&#x27;,{f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in ROOT.glob(&#x27;*.py&#x27;)})
+    print(&#x27;FINAL&#x27;,compact(m),flush=True)
+
+if __name__==&#x27;__main__&#x27;:
+    main()
+</pre>
