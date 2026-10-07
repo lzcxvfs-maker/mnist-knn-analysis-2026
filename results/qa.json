@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "checks": [
+    "l2_uniform_sklearn_prediction_and_probability",
+    "l2_distance_sklearn_prediction_and_probability",
+    "l2_distance_and_cpu_gpu_neighbors",
+    "l1_uniform_sklearn_prediction_and_probability",
+    "l1_distance_sklearn_prediction_and_probability",
+    "l1_distance_and_cpu_gpu_neighbors",
+    "pca_svd_subspace_variance_and_training_only_mean",
+    "kth_distance_boundary_ties",
+    "class_vote_ties",
+    "zero_distance_weights",
+    "topn_monotonicity"
+  ],
+  "distance_benchmark": {
+    "nested_loop": {
+      "seconds": [
+        0.04412120001506992,
+        0.04605380000430159,
+        0.02220480001415126
+      ],
+      "median_s": 0.04412120001506992
+    },
+    "vectorized": {
+      "seconds": [
+        5.949998740106821e-05,
+        2.8199981898069382e-05,
+        2.4200009647756815e-05
+      ],
+      "median_s": 2.8199981898069382e-05
+    }
+  },
+  "benchmark_shape": {
+    "query": 32,
+    "train": 240,
+    "dimensions": 24
+  },
+  "note": "Small controlled kernel microbenchmark; not full MNIST runtime."
+}
